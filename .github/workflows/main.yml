@@ -1,0 +1,85 @@
+name: RasFocus Windows Build
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+
+      - name: Setup MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Build application
+        shell: cmd
+        run: |
+          qmake RasFucus.pro
+          nmake release
+
+      - name: Prepare dist folder
+        shell: cmd
+        run: |
+          if not exist dist mkdir dist
+          copy release\RasFocusAdultBlocker.exe dist\
+
+      - name: Deploy Qt dependencies
+        shell: cmd
+        run: |
+          windeployqt dist\RasFocusAdultBlocker.exe
+
+      - name: Create single downloadable EXE package
+        shell: powershell
+        run: |
+          $sevenZipExe = "${env:ProgramFiles}\7-Zip\7z.exe"
+          if (!(Test-Path $sevenZipExe)) {
+            $sevenZipExe = "${env:ProgramFiles(x86)}\7-Zip\7z.exe"
+          }
+          if (!(Test-Path $sevenZipExe)) {
+            throw "7-Zip executable not found."
+          }
+
+          $sevenZipSfx = "${env:ProgramFiles}\7-Zip\7z.sfx"
+          if (!(Test-Path $sevenZipSfx)) {
+            $sevenZipSfx = "${env:ProgramFiles(x86)}\7-Zip\7z.sfx"
+          }
+          if (!(Test-Path $sevenZipSfx)) {
+            throw "7-Zip SFX module not found."
+          }
+
+          Set-Location dist
+
+          & $sevenZipExe a -t7z app_package.7z * | Out-Host
+
+          $sfxConfig = @"
+;!@Install@!UTF-8!
+Title="RasFocus AdultBlocker"
+BeginPrompt="Do you want to extract and run RasFocus?"
+RunProgram="RasFocusAdultBlocker.exe"
+;!@InstallEnd@!
+"@
+
+          Set-Content -Path config.txt -Value $sfxConfig -Encoding ASCII
+
+          cmd /c copy /b "$sevenZipSfx" + "config.txt" + "app_package.7z" "..\RasFocus-Windows-OneFile.exe"
+
+      - name: Upload final EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RasFocus-Windows-OneFile
+          path: RasFocus-Windows-OneFile.exe
