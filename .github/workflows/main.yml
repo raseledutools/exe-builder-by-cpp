@@ -33,24 +33,25 @@ jobs:
       run: |
         mkdir dist
         copy release\RasFocus+AdultBlocker.exe dist\
-        # windeployqt সব প্রয়োজনীয় C++ DLL গুলোকে dist ফোল্ডারে নিয়ে আসবে
         windeployqt --no-translations dist\RasFocus+AdultBlocker.exe
 
-    # ১. এনিগমা ভার্চুয়াল বক্স ইন্সটল করা (এটি সি++ এর জন্য সেরা)
-    - name: Install Enigma Virtual Box
-      run: choco install enigma-virtual-box -y
+    # Chocolatey ব্যর্থ হওয়ায় সরাসরি ডাউনলোড এবং ইন্সটল
+    - name: Download and Install Enigma Virtual Box
+      shell: pwsh
+      run: |
+        curl -L "https://enigmaprotector.com/assets/files/evb_setup.exe" -o evb_setup.exe
+        Start-Process -FilePath .\evb_setup.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
 
-    # ২. সব DLL এবং EXE কে একটি ফাইলে প্যাক করা
     - name: Pack Everything into One File
       shell: pwsh
       run: |
         $exePath = "dist\RasFocus+AdultBlocker.exe"
         $outPath = "RasFocus_Standalone.exe"
+        $evbConsole = "C:\Program Files (x86)\Enigma Virtual Box\enigmavbconsole.exe"
         
-        # একটি কনফিগারেশন ফাইল তৈরি করা যাতে সব ফাইল এমবেড হয়
-        # এখানে এনিগমা অটোমেটিক ডিস্ট ফোল্ডারের ফাইলগুলো প্যাক করে নিবে
-        & "C:\Program Files (x86)\Enigma Virtual Box\enigmavbconsole.exe" gen RasFocus.evb $exePath $outPath dist
-        & "C:\Program Files (x86)\Enigma Virtual Box\enigmavbconsole.exe" RasFocus.evb
+        # জেনারেট প্রজেক্ট ফাইল এবং প্যাক করা
+        & $evbConsole gen RasFocus.evb $exePath $outPath dist
+        & $evbConsole RasFocus.evb
 
     - name: Upload Single Executable
       uses: actions/upload-artifact@v4
