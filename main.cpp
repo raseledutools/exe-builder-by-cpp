@@ -29,6 +29,8 @@
 #include <QStackedWidget>
 #include <QTextEdit>
 #include <QStandardPaths>
+#include <iostream>
+#include <fstream>
 
 // Windows Native Headers for Core Logic
 #include <windows.h>
@@ -48,19 +50,21 @@
 
 using namespace std;
 
-// --- GLOBALS FOR HOOKS AND WIN32 LOGIC ---
+// --- GLOBALS ---
 HHOOK hKeyboardHook;
 string globalKeyBuffer = "";
 vector<string> explicitKeywords = {"porn", "xxx", "sex", "nude", "nsfw", "xvideos", "pornhub", "xnxx", "xhamster", "brazzers", "onlyfans", "playboy", "mia khalifa", "bhabi", "chudai", "bangla choti", "magi", "sexy"};
 vector<string> safeBrowserTitles = {"new tab", "start", "blank page", "allowed websites focus mode", "loading", "untitled", "connecting", "pomodoro break", "premium upgrade"};
 vector<string> systemApps = {"explorer.exe", "svchost.exe", "taskmgr.exe", "cmd.exe", "conhost.exe", "csrss.exe", "dwm.exe", "lsass.exe", "services.exe", "smss.exe", "wininit.exe", "winlogon.exe", "spoolsv.exe", "fontdrvhost.exe", "searchui.exe", "searchindexer.exe", "sihost.exe", "taskhostw.exe", "ctfmon.exe", "applicationframehost.exe", "system", "registry", "audiodg.exe", "searchapp.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "textinputhost.exe"};
 
+// --- HELPER FUNCTIONS ---
 string GetSecretDir() {
     string dir = "C:\\ProgramData\\SysCache_Ras";
     CreateDirectoryA(dir.c_str(), NULL);
     SetFileAttributesA(dir.c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
     return dir + "\\";
 }
+
 string GetSessionFilePath() { return GetSecretDir() + "session.dat"; }
 
 string GetDeviceID() {
@@ -69,34 +73,68 @@ string GetDeviceID() {
     char id[256]; sprintf(id, "%s-%X", compName, volSerial); return string(id);
 }
 
-// Forward Declarations for Core Functions
-extern void ToggleAdBlock(bool enable);
 string EnsureExe(string n) { if(n.length()<4 || n.substr(n.length()-4)!=".exe") return n+".exe"; return n; }
+
+string GenerateDisplayURL(string url) { 
+    string s=url; string e[]={"https://","http://","www.","/*"}; 
+    for(const string& p:e){ size_t pos=s.find(p); if(pos!=string::npos) s.erase(pos,p.length()); } 
+    return s; 
+}
+
 bool CheckMatch(string url, string sTitle) { 
-    string t=sTitle; t.erase(remove_if(t.begin(), t.end(), ::isspace), t.end()); 
+    string t=sTitle; t.erase(::std::remove_if(t.begin(), t.end(), ::isspace), t.end()); 
     string s=url; transform(s.begin(), s.end(), s.begin(), ::tolower); 
-    string exact=s; exact.erase(remove_if(exact.begin(), exact.end(), ::isspace), exact.end()); 
+    string exact=s; exact.erase(::std::remove_if(exact.begin(), exact.end(), ::isspace), exact.end()); 
     if (!exact.empty() && t.find(exact) != string::npos) return true; 
     replace(s.begin(), s.end(), '.', ' '); replace(s.begin(), s.end(), '/', ' '); replace(s.begin(), s.end(), ':', ' '); replace(s.begin(), s.end(), '-', ' '); 
     stringstream ss(s); string word; 
     while(ss >> word) { if (word=="https"||word=="http"||word=="www"||word=="com"||word=="org"||word=="net"||word=="html"||word=="github") continue; if (word.length()>=3 && t.find(word) != string::npos) return true; } 
     return false; 
 }
-string GenerateDisplayURL(string url) { string s=url; string e[]={"https://","http://","www.","/*"}; for(const string& p:e){ size_t pos=s.find(p); if(pos!=string::npos) s.erase(pos,p.length()); } return s; }
-void CloseActiveTabAndMinimize(HWND hBrowser) { SetForegroundWindow(hBrowser); Sleep(50); keybd_event(VK_CONTROL,0,0,0); keybd_event('W',0,0,0); keybd_event('W',0,KEYEVENTF_KEYUP,0); keybd_event(VK_CONTROL,0,KEYEVENTF_KEYUP,0); Sleep(100); ShowWindow(hBrowser, SW_MINIMIZE); }
+
+void CloseActiveTabAndMinimize(HWND hBrowser) { 
+    SetForegroundWindow(hBrowser); Sleep(50); 
+    keybd_event(VK_CONTROL,0,0,0); keybd_event('W',0,0,0); keybd_event('W',0,KEYEVENTF_KEYUP,0); keybd_event(VK_CONTROL,0,KEYEVENTF_KEYUP,0); 
+    Sleep(100); ShowWindow(hBrowser, SW_MINIMIZE); 
+}
+
 void ShowAllowedWebsitesPage(const vector<string>& allowedWebs) {
     static DWORD lastTime = 0; if (GetTickCount()-lastTime<3000) return; lastTime=GetTickCount();
     string hPath = GetSecretDir() + "allowed_sites.html"; ofstream html(hPath);
     html<<"<!DOCTYPE html><html><head><style>body{font-family:sans-serif;text-align:center;}a{background:#007bff;color:white;padding:10px;margin:5px;display:inline-block;}</style></head><body><h2>Focus Active! Allowed:</h2>";
-    for (const auto& w:allowedWebs) html<<"<a href='https://"<<GenerateDisplayURL(w)<<"' target='_blank'>"<<w<<"</a>"; html<<"</body></html>"; html.close(); ShellExecuteA(NULL, "open", hPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+    for (const auto& w:allowedWebs) { html<<"<a href='https://"<<GenerateDisplayURL(w).c_str()<<"' target='_blank'>"<<w.c_str()<<"</a>"; }
+    html<<"</body></html>"; html.close(); ShellExecuteA(NULL, "open", hPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
 }
+
 void ShowPomodoroBreakPage() {
     char p[MAX_PATH]; GetCurrentDirectoryA(MAX_PATH, p); string hPath=string(p)+"\\pomodoro_break.html"; ofstream html(hPath);
     html<<"<!DOCTYPE html><html><head><style>body{margin:0;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;background:linear-gradient(to bottom, #1e3c72, #2a5298);color:white;font-family:'Segoe UI',sans-serif;}h1{font-size:50px;margin-bottom:10px;}p{font-size:20px;color:#a0c4ff;}</style></head><body><h1>Time to Relax & Drink Water!</h1><p>2 Minutes Break Started.</p></body></html>";
     html.close(); ShellExecuteA(NULL, "open", hPath.c_str(), NULL, NULL, SW_SHOWMAXIMIZED);
 }
 
-// Custom Qt Overlays replacing Win32 Overlays
+struct WindowProcData { vector<string> apps; };
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) { 
+    if(!IsWindowVisible(hwnd)) return TRUE; if(GetWindowTextLengthA(hwnd)==0) return TRUE; 
+    DWORD pid=0; GetWindowThreadProcessId(hwnd, &pid); if(pid==0 || pid==GetCurrentProcessId()) return TRUE; 
+    HANDLE h=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); 
+    if(h){ 
+        char n[MAX_PATH]; DWORD s=MAX_PATH; 
+        if(QueryFullProcessImageNameA(h,0,n,&s)){ 
+            string p=n; string e=p.substr(p.find_last_of("\\/")+1); transform(e.begin(), e.end(), e.begin(), ::tolower); 
+            if(e!="explorer.exe"&&e!="applicationframehost.exe"&&e!="textinputhost.exe"){ 
+                WindowProcData* d=(WindowProcData*)lParam; if(::std::find(d->apps.begin(), d->apps.end(), e)==d->apps.end()) d->apps.push_back(e); 
+            } 
+        } CloseHandle(h); 
+    } return TRUE; 
+}
+vector<string> GetAppListForUI() { 
+    vector<string> commonThirdPartyApps = {"chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "yandex.exe", "safari.exe", "waterfox.exe", "code.exe", "pycharm64.exe", "python.exe", "idea64.exe", "studio64.exe", "vlc.exe", "telegram.exe", "whatsapp.exe", "discord.exe", "zoom.exe", "skype.exe", "obs64.exe", "steam.exe", "epicgameslauncher.exe", "winword.exe", "excel.exe", "powerpnt.exe", "notepad.exe", "spotify.exe"};
+    WindowProcData d; EnumWindows(EnumWindowsProc, (LPARAM)&d); 
+    for(const auto& a:commonThirdPartyApps){ if(::std::find(d.apps.begin(), d.apps.end(), a)==d.apps.end()) d.apps.push_back(a); } 
+    sort(d.apps.begin(), d.apps.end()); return d.apps; 
+}
+
+// --- OVERLAY WIDGET ---
 class OverlayWidget : public QWidget {
 public:
     OverlayWidget(QColor color, const QString& text = "", QWidget* parent = nullptr) : QWidget(parent) {
@@ -133,7 +171,6 @@ public:
     bool isLicenseValid = false, isTrialExpired = false; int trialDaysLeft = 7, pendingAdminCmd = 0;
     
     vector<string> blockedApps, blockedWebs, allowedApps, allowedWebs;
-    
     OverlayWidget *overlayBlock, *overlayDim, *overlayWarm;
 
     static RasFocusProApp* instance;
@@ -176,12 +213,9 @@ private:
     QTimer *coreTimer;
     QTimer *firebaseTimer;
 
-    void setupUI();
-    void setupStyle();
-    void buildDashboardPage(QWidget *page);
-    void buildListsPage(QWidget *page);
-    void buildSettingsPage(QWidget *page);
-    void buildHelpPage(QWidget *page);
+    void setupUI(); void setupStyle();
+    void buildDashboardPage(QWidget *page); void buildListsPage(QWidget *page);
+    void buildSettingsPage(QWidget *page); void buildHelpPage(QWidget *page);
     
     void createStopwatchWindow();
     void loadData(); void saveData(); void loadSessionData(); void saveSessionData();
@@ -198,8 +232,6 @@ private:
     void registerDeviceToFirebase(string deviceId);
     bool handleSettingsWarning();
     void applyEyeFilters();
-
-    vector<string> getAppListForUI();
 
 private slots:
     void switchPage(int index) { stackedWidget->setCurrentIndex(index); }
@@ -235,12 +267,6 @@ LRESULT CALLBACK GlobalKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
     }
     return CallNextHookEx(hKeyboardHook, nCode, wParam, lParam);
-}
-
-bool CheckSingleInstance() {
-    HANDLE hMutex = CreateMutexA(NULL, TRUE, "RasFocusPro_Mutex_QT");
-    if (GetLastError() == ERROR_ALREADY_EXISTS) { return false; }
-    return true;
 }
 
 RasFocusProApp::RasFocusProApp(QWidget *parent) : QMainWindow(parent) {
@@ -370,7 +396,7 @@ void RasFocusProApp::buildListsPage(QWidget *page) {
     
     QVBoxLayout *v1 = new QVBoxLayout(); v1->addWidget(new QLabel("Block Apps (e.g. vlc.exe):"));
     QHBoxLayout *h1 = new QHBoxLayout(); appInput = new QLineEdit(); comboApp = new QComboBox();
-    comboApp->addItems({"", "chrome.exe", "msedge.exe", "firefox.exe", "vlc.exe", "telegram.exe", "discord.exe"}); comboApp->setFixedWidth(80);
+    comboApp->addItems({"", "chrome.exe", "msedge.exe", "firefox.exe", "vlc.exe", "telegram.exe", "discord.exe"}); comboApp->setFixedWidth(100);
     connect(comboApp, &QComboBox::currentTextChanged, [this](const QString &t){ if(!t.isEmpty()) appInput->setText(t); });
     QPushButton *b1 = new QPushButton("Add"); connect(b1, &QPushButton::clicked, this, &RasFocusProApp::addApp);
     h1->addWidget(appInput); h1->addWidget(comboApp); h1->addWidget(b1); v1->addLayout(h1);
@@ -380,7 +406,7 @@ void RasFocusProApp::buildListsPage(QWidget *page) {
 
     QVBoxLayout *v2 = new QVBoxLayout(); v2->addWidget(new QLabel("Block Websites:"));
     QHBoxLayout *h2 = new QHBoxLayout(); webInput = new QLineEdit(); comboWeb = new QComboBox();
-    comboWeb->addItems({"", "facebook.com", "youtube.com", "instagram.com", "tiktok.com"}); comboWeb->setFixedWidth(80);
+    comboWeb->addItems({"", "facebook.com", "youtube.com", "instagram.com", "tiktok.com"}); comboWeb->setFixedWidth(100);
     connect(comboWeb, &QComboBox::currentTextChanged, [this](const QString &t){ if(!t.isEmpty()) webInput->setText(t); });
     QPushButton *b2 = new QPushButton("Add"); connect(b2, &QPushButton::clicked, this, &RasFocusProApp::addWeb);
     h2->addWidget(webInput); h2->addWidget(comboWeb); h2->addWidget(b2); v2->addLayout(h2);
@@ -395,7 +421,7 @@ void RasFocusProApp::buildListsPage(QWidget *page) {
 
     QVBoxLayout *v4 = new QVBoxLayout(); v4->addWidget(new QLabel("Allow Apps:"));
     QHBoxLayout *h4 = new QHBoxLayout(); allowAppInput = new QLineEdit(); comboAllowApp = new QComboBox();
-    comboAllowApp->addItems({"", "chrome.exe", "code.exe", "msedge.exe"}); comboAllowApp->setFixedWidth(80);
+    comboAllowApp->addItems({"", "chrome.exe", "code.exe", "msedge.exe"}); comboAllowApp->setFixedWidth(100);
     connect(comboAllowApp, &QComboBox::currentTextChanged, [this](const QString &t){ if(!t.isEmpty()) allowAppInput->setText(t); });
     QPushButton *b4 = new QPushButton("Add"); connect(b4, &QPushButton::clicked, this, &RasFocusProApp::addAllowApp);
     h4->addWidget(allowAppInput); h4->addWidget(comboAllowApp); h4->addWidget(b4); v4->addLayout(h4);
@@ -405,7 +431,7 @@ void RasFocusProApp::buildListsPage(QWidget *page) {
 
     QVBoxLayout *v5 = new QVBoxLayout(); v5->addWidget(new QLabel("Allow Webs:"));
     QHBoxLayout *h5 = new QHBoxLayout(); allowWebInput = new QLineEdit(); comboAllowWeb = new QComboBox();
-    comboAllowWeb->addItems({"", "github.com", "stackoverflow.com"}); comboAllowWeb->setFixedWidth(80);
+    comboAllowWeb->addItems({"", "github.com", "stackoverflow.com"}); comboAllowWeb->setFixedWidth(100);
     connect(comboAllowWeb, &QComboBox::currentTextChanged, [this](const QString &t){ if(!t.isEmpty()) allowWebInput->setText(t); });
     QPushButton *b5 = new QPushButton("Add"); connect(b5, &QPushButton::clicked, this, &RasFocusProApp::addAllowWeb);
     h5->addWidget(allowWebInput); h5->addWidget(comboAllowWeb); h5->addWidget(b5); v5->addLayout(h5);
@@ -480,7 +506,7 @@ void RasFocusProApp::handleToggles() {
         chkReels->setChecked(blockReels); chkShorts->setChecked(blockShorts); chkAdBlock->setChecked(isAdblockActive); return;
     }
     blockReels = chkReels->isChecked(); blockShorts = chkShorts->isChecked(); isAdblockActive = chkAdBlock->isChecked();
-    // ToggleAdBlock(isAdblockActive); // Assuming adblocker.cpp logic
+    // ToggleAdBlock(isAdblockActive);
     saveSessionData(); syncTogglesToFirebase();
 }
 
@@ -559,7 +585,12 @@ void RasFocusProApp::saveData() {
     s("bl_app.dat", blockedApps); s("bl_web.dat", blockedWebs); s("al_app.dat", allowedApps); s("al_web.dat", allowedWebs);
 }
 
-void RasFocusProApp::setupAutoStart() { SetupAutoStart(); }
+void RasFocusProApp::setupAutoStart() { 
+    char p[MAX_PATH]; GetModuleFileNameA(NULL,p,MAX_PATH); string e=string(p); 
+    string cmd="-WindowStyle Hidden -Command \"$A=New-ScheduledTaskAction -Execute '"+e+"' -Argument '-autostart'; $T=New-ScheduledTaskTrigger -AtLogOn; $S=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0; Register-ScheduledTask -TaskName 'RasFocusPro' -Action $A -Trigger $T -Settings $S -Force\""; 
+    SHELLEXECUTEINFOA s={sizeof(s)}; s.lpVerb="open"; s.lpFile="powershell.exe"; s.lpParameters=cmd.c_str(); s.nShow=SW_HIDE; ShellExecuteExA(&s); 
+}
+
 void RasFocusProApp::createDesktopShortcut() { CreateDesktopShortcut(); }
 void RasFocusProApp::applyEyeFilters() { ApplyEyeFilters(); }
 
@@ -620,19 +651,24 @@ void RasFocusProApp::enforceFocusMode() {
     HWND hActive = GetForegroundWindow(); DWORD activePid; GetWindowThreadProcessId(hActive, &activePid); HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, activePid); string activeExe = "";
     if(ph){ char ex[MAX_PATH]; DWORD sz=MAX_PATH; if(QueryFullProcessImageNameA(ph,0,ex,&sz)){ string p=ex; activeExe=p.substr(p.find_last_of("\\/")+1); transform(activeExe.begin(), activeExe.end(), activeExe.begin(), ::tolower); } CloseHandle(ph); }
 
-    HANDLE h=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); PROCESSENTRY32 pe={sizeof(pe)}; DWORD myPid=GetCurrentProcessId();
-    if(Process32First(h,&pe)){ do{
-        if(pe.th32ProcessID==myPid) continue; string n=pe.szExeFile; transform(n.begin(), n.end(), n.begin(), ::tolower);
-        if(n=="taskmgr.exe" || n=="msiexec.exe" || n=="setup.exe" || n=="install.exe" || n=="installer.exe"){ HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} continue; }
-        if(useAllowMode){
-            bool isSys=(::std::find(systemApps.begin(), systemApps.end(), n)!=systemApps.end()); bool isAll=false;
-            for(const auto& a:allowedApps){ string la=EnsureExe(a); transform(la.begin(), la.end(), la.begin(), ::tolower); if(n==la){isAll=true;break;} }
-            bool isCommonBrowser = (n=="chrome.exe"||n=="msedge.exe"||n=="firefox.exe"||n=="brave.exe"||n=="opera.exe"||n=="vivaldi.exe"||n=="yandex.exe"||n=="safari.exe"||n=="waterfox.exe"); 
-            if(!isSys && !isAll && !isCommonBrowser){ HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} }
-        } else {
-            for(const auto& a:blockedApps){ string la=EnsureExe(a); transform(la.begin(), la.end(), la.begin(), ::tolower); if(n==la){ HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} } }
-        }
-    } while(Process32Next(h,&pe)); } CloseHandle(h);
+    HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); 
+    PROCESSENTRY32A pe = {sizeof(pe)}; 
+    DWORD myPid = GetCurrentProcessId();
+    if(Process32FirstA(h, &pe)){ 
+        do{
+            if(pe.th32ProcessID==myPid) continue; string n=pe.szExeFile; transform(n.begin(), n.end(), n.begin(), ::tolower);
+            if(n=="taskmgr.exe" || n=="msiexec.exe" || n=="setup.exe" || n=="install.exe" || n=="installer.exe"){ HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} continue; }
+            if(useAllowMode){
+                bool isSys=(::std::find(systemApps.begin(), systemApps.end(), n)!=systemApps.end()); bool isAll=false;
+                for(const auto& a:allowedApps){ string la=EnsureExe(a); transform(la.begin(), la.end(), la.begin(), ::tolower); if(n==la){isAll=true;break;} }
+                bool isCommonBrowser = (n=="chrome.exe"||n=="msedge.exe"||n=="firefox.exe"||n=="brave.exe"||n=="opera.exe"||n=="vivaldi.exe"||n=="yandex.exe"||n=="safari.exe"||n=="waterfox.exe"); 
+                if(!isSys && !isAll && !isCommonBrowser){ HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} }
+            } else {
+                for(const auto& a:blockedApps){ string la=EnsureExe(a); transform(la.begin(), la.end(), la.begin(), ::tolower); if(n==la){ HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} } }
+            }
+        } while(Process32NextA(h, &pe)); 
+    } 
+    CloseHandle(h);
 
     if(overlayBlock->isVisible()) return;
     if(hActive) {
@@ -672,18 +708,124 @@ void RasFocusProApp::checkAlwaysOnAdultFilter() {
     }
 }
 
-void RasFocusProApp::validateLicenseAndTrial() { ValidateLicenseAndTrial(); }
-void RasFocusProApp::syncLiveTrackerToFirebase() { SyncLiveTrackerToFirebase(); }
-void RasFocusProApp::syncTogglesToFirebase() { SyncTogglesToFirebase(); }
-void RasFocusProApp::syncPasswordToFirebase(string pass, bool isLocking) { SyncPasswordToFirebase(pass, isLocking); }
-void RasFocusProApp::syncProfileNameToFirebase(string name) { SyncProfileNameToFirebase(name); }
-void RasFocusProApp::registerDeviceToFirebase(string deviceId) { RegisterDeviceToFirebase(deviceId); }
+void RasFocusProApp::validateLicenseAndTrial() {
+    string deviceId = GetDeviceID(); string trialFile = GetSecretDir() + "sys_lic.dat"; ifstream in(trialFile); time_t firstRun;
+    if (in >> firstRun) { time_t now = time(0); double days = difftime(now, firstRun) / (60 * 60 * 24); trialDaysLeft = 7 - (int)days; if (days > 7.0) { isTrialExpired = true; trialDaysLeft = 0; } } 
+    else { ofstream out(trialFile); out << time(0); out.close(); trialDaysLeft = 7; registerDeviceToFirebase(deviceId); }
+
+    HINTERNET hInternet = InternetOpenA("RasFocus", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+    if (hInternet) {
+        string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+        HINTERNET hConnect = InternetOpenUrlA(hInternet, url.c_str(), NULL, 0, INTERNET_FLAG_RELOAD, 0);
+        if (hConnect) {
+            char buffer[1024]; DWORD bytesRead; string response = "";
+            while (InternetReadFile(hConnect, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) { buffer[bytesRead] = '\0'; response += buffer; }
+            InternetCloseHandle(hConnect);
+
+            if (response.find("\"stringValue\": \"APPROVED\"") != string::npos) { isLicenseValid = true; isTrialExpired = false; } 
+            else if (response.find("\"stringValue\": \"REVOKED\"") != string::npos) { isLicenseValid = false; isTrialExpired = true; trialDaysLeft = 0; } 
+            else { isLicenseValid = !isTrialExpired; }
+
+            auto parseBool = [&](string fName, bool defaultVal) {
+                size_t pos = response.find("\"" + fName + "\"");
+                if(pos != string::npos) { size_t vPos = response.find("\"booleanValue\":", pos); if(vPos != string::npos) { if(response.find("true", vPos) < response.find("}", vPos)) return true; if(response.find("false", vPos) < response.find("}", vPos)) return false; } }
+                return defaultVal;
+            };
+            
+            bool newAdult = parseBool("adultBlock", blockAdult);
+            bool newReels = parseBool("fbReelsBlock", blockReels);
+            bool newShorts = parseBool("ytShortsBlock", blockShorts);
+            
+            if(newAdult != blockAdult) blockAdult = newAdult;
+            if(newReels != blockReels) { blockReels = newReels; chkReels->setChecked(blockReels); saveSessionData(); }
+            if(newShorts != blockShorts) { blockShorts = newShorts; chkShorts->setChecked(blockShorts); saveSessionData(); }
+
+            size_t pNamePos = response.find("\"profileName\""); if (pNamePos != string::npos) { size_t valPos = response.find("\"stringValue\": \"", pNamePos); if (valPos != string::npos) { valPos += 16; size_t endPos = response.find("\"", valPos); if(endPos != string::npos) userProfileName = response.substr(valPos, endPos - valPos); } }
+            adminMessage = ""; size_t msgPos = response.find("\"adminMessage\""); if (msgPos != string::npos) { size_t valPos = response.find("\"stringValue\": \"", msgPos); if (valPos != string::npos) { valPos += 16; size_t endPos = response.find("\"", valPos); if(endPos != string::npos) adminMessage = response.substr(valPos, endPos - valPos); } }
+            
+            size_t cmdPos = response.find("\"adminCmd\"");
+            if (cmdPos != string::npos) {
+                size_t vPos = response.find("\"stringValue\": \"", cmdPos);
+                if (vPos != string::npos) {
+                    vPos += 16; size_t ePos = response.find("\"", vPos); string cmd = response.substr(vPos, ePos - vPos);
+                    if (cmd == "START_FOCUS" && !isSessionActive) { string aPass = "12345"; size_t pPos = response.find("\"adminPass\""); if (pPos != string::npos) { size_t pvPos = response.find("\"stringValue\": \"", pPos); if (pvPos != string::npos) { pvPos += 16; size_t pePos = response.find("\"", pvPos); aPass = response.substr(pvPos, pePos - pvPos); } } pendingAdminPass = aPass; pendingAdminCmd = 1; }
+                    else if (cmd == "STOP_FOCUS" && isSessionActive) { pendingAdminCmd = 2; }
+                }
+            }
+            
+            size_t bcastPos = response.find("\"broadcastMsg\"");
+            if (bcastPos != string::npos) {
+                size_t vPos = response.find("\"stringValue\": \"", bcastPos);
+                if (vPos != string::npos) { 
+                    vPos += 16; size_t ePos = response.find("\"", vPos); 
+                    string bMsg = response.substr(vPos, ePos - vPos);
+                    if (!bMsg.empty() && bMsg != "ACK" && bMsg != lastSeenBroadcastMsg) { 
+                        lastSeenBroadcastMsg = bMsg;
+                        currentBroadcastMsg = bMsg; 
+                        QMessageBox::information(this, "ADMIN BROADCAST", QString::fromStdString(bMsg));
+                    }
+                }
+            }
+
+            size_t chatPos = response.find("\"liveChatAdmin\"");
+            if (chatPos != string::npos) {
+                size_t cvPos = response.find("\"stringValue\": \"", chatPos);
+                if (cvPos != string::npos) { cvPos += 16; size_t cePos = response.find("\"", cvPos); string adminChatStr = response.substr(cvPos, cePos - cvPos);
+                    if (!adminChatStr.empty() && adminChatStr != lastAdminChat) { lastAdminChat = adminChatStr; if (chatLogEdit) { chatLogEdit->append("Admin: " + QString::fromStdString(adminChatStr)); } }
+                }
+            }
+        } InternetCloseHandle(hConnect);
+    } InternetCloseHandle(hInternet);
+}
+
+void RasFocusProApp::syncLiveTrackerToFirebase() {
+    string deviceId = GetDeviceID(); string mode = "None"; string timeL = "00:00"; string activeStr = isSessionActive ? "$true" : "$false";
+    if (isSessionActive) {
+        if(isPomodoroMode) { mode = "Pomodoro"; int l = (pomoLengthMin*60) - pomoTicks; if(isPomodoroBreak) l = (2*60) - pomoTicks; if(l<0) l=0; char buf[20]; sprintf(buf, "%02d:%02d", l/60, l%60); timeL = buf; }
+        else if(isTimeMode) { mode = "Timer"; int l = focusTimeTotalSeconds - timerTicks; if(l<0) l=0; char buf[20]; sprintf(buf, "%02d:%02d", l/60, l%60); timeL = buf; }
+        else if(isPassMode) { mode = "Password"; timeL = "Manual Lock"; }
+    }
+    string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=isSelfControlActive&updateMask.fieldPaths=activeModeType&updateMask.fieldPaths=timeRemaining&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ isSelfControlActive = @{ booleanValue = " + activeStr + " }; activeModeType = @{ stringValue = '" + mode + "' }; timeRemaining = @{ stringValue = '" + timeL + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void RasFocusProApp::syncTogglesToFirebase() {
+    string deviceId = GetDeviceID(); string bR = blockReels ? "$true" : "$false"; string bS = blockShorts ? "$true" : "$false"; string bA = isAdblockActive ? "$true" : "$false";
+    string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=fbReelsBlock&updateMask.fieldPaths=ytShortsBlock&updateMask.fieldPaths=adBlock&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ fbReelsBlock = @{ booleanValue = " + bR + " }; ytShortsBlock = @{ booleanValue = " + bS + " }; adBlock = @{ booleanValue = " + bA + " } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void RasFocusProApp::syncPasswordToFirebase(string pass, bool isLocking) {
+    string deviceId = GetDeviceID(); string val = isLocking ? pass : ""; string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=livePassword&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ livePassword = @{ stringValue = '" + val + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void RasFocusProApp::syncProfileNameToFirebase(string name) {
+    string deviceId = GetDeviceID(); string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=profileName&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ profileName = @{ stringValue = '" + name + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void RasFocusProApp::registerDeviceToFirebase(string deviceId) {
+    string params = "-WindowStyle Hidden -Command \"$url='https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY'; $body = @{ fields = @{ deviceID = @{ stringValue = '" + deviceId + "' }; status = @{ stringValue = 'TRIAL' }; package = @{ stringValue = '7 Days Trial' }; adminMessage = @{ stringValue = '' }; adminCmd = @{ stringValue = 'NONE' }; adminPass = @{ stringValue = '' }; liveChatAdmin = @{ stringValue = '' }; liveChatUser = @{ stringValue = '' }; livePassword = @{ stringValue = '' }; profileName = @{ stringValue = '' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri $url -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     if (!CheckSingleInstance()) return 0;
+    
+    // AutoStart check
+    bool isAutoStart = false;
+    for(int i=1; i<argc; i++) { if(string(argv[i]) == "-autostart") isAutoStart = true; }
+
     RasFocusProApp window;
-    window.show();
+    if(!isAutoStart && !window.isSessionActive) {
+        window.show();
+    }
     return app.exec();
 }
 #include "main.moc"
