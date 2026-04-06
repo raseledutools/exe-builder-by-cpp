@@ -30,6 +30,9 @@
 #include <QSlider>
 #include <QTextEdit>
 #include <QPainter>
+#include <QStyle>
+#include <QMap>
+#include <QElapsedTimer>
 
 // Windows API
 #include <windows.h>
@@ -59,11 +62,9 @@ QStringList timeQuotes = { "\"যারা সময়কে মূল্যা
 bool isSessionActive = false, isTimeMode = false, isPassMode = false, useAllowMode = false, isOverlayVisible = false;
 bool blockReels = false, blockShorts = false, isAdblockActive = false, blockAdult = false;
 bool isPomodoroMode = false, isPomodoroBreak = false, userClosedExpired = false;
-bool swRunning = false;
 
 int eyeBrightness = 100, eyeWarmth = 0, focusTimeTotalSeconds = 0, timerTicks = 0;
 int pomoLengthMin = 25, pomoTotalSessions = 4, pomoCurrentSession = 1, pomoTicks = 0;
-DWORD swStart = 0, swElapsed = 0;
 
 QString currentSessionPass = "", userProfileName = "", safeAdminMsg = "", currentDisplayQuote = "";
 QString lastAdminChat = "", pendingAdminChatStr = "", currentBroadcastMsg = "", pendingBroadcastMsg = "";
@@ -78,9 +79,17 @@ QTimer *overlayHideTimer = nullptr;
 HHOOK hKeyboardHook;
 QString globalKeyBuffer = "";
 
+// Usage Tracker
+QMap<QString, int> usageStats;
+DWORD lastUsageUpdate = 0;
+
 // ==========================================
 // UTILITY FUNCTIONS
 // ==========================================
+void runPowerShell(QString cmdBody) {
+    QProcess::startDetached("powershell.exe", QStringList() << "-WindowStyle" << "Hidden" << "-Command" << cmdBody);
+}
+
 QString GetDeviceID() {
     char compName[MAX_COMPUTERNAME_LENGTH + 1]; DWORD size = sizeof(compName); GetComputerNameA(compName, &size);
     DWORD volSerial = 0; GetVolumeInformationA("C:\\", NULL, 0, &volSerial, NULL, NULL, NULL, 0);
@@ -92,6 +101,20 @@ QString GetSecretDir() {
     QDir().mkpath(dir);
     SetFileAttributesA(dir.toStdString().c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
     return dir + "/";
+}
+
+bool CheckMatch(QString url, QString sTitle) { 
+    QString t = sTitle.remove(' '); 
+    QString exact = url.toLower().remove(' '); 
+    if (!exact.isEmpty() && t.contains(exact)) return true; 
+    QString s = url.toLower(); 
+    s.replace('.', ' ').replace('/', ' ').replace(':', ' ').replace('-', ' '); 
+    QStringList words = s.split(' ', Qt::SkipEmptyParts); 
+    for(const QString& word : words) { 
+        if (word == "https" || word == "http" || word == "www" || word == "com" || word == "org" || word == "net" || word == "html") continue; 
+        if (word.length() >= 3 && t.contains(word)) return true; 
+    } 
+    return false; 
 }
 
 void CloseActiveTabAndMinimize(HWND hBrowser) {
@@ -113,16 +136,18 @@ void ShowCustomOverlay(int type) {
         overlayWidget = new QWidget();
         overlayWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
         overlayWidget->setAttribute(Qt::WA_TranslucentBackground);
-        overlayWidget->resize(700, 200);
+        overlayWidget->resize(850, 350); // Increased size
         
         QVBoxLayout* l = new QVBoxLayout(overlayWidget);
         QWidget* bg = new QWidget();
         bg->setObjectName("bg");
         QVBoxLayout* bl = new QVBoxLayout(bg);
+        bl->setContentsMargins(40, 40, 40, 40); // Added padding
+        
         overlayLabel = new QLabel();
         overlayLabel->setAlignment(Qt::AlignCenter);
         overlayLabel->setWordWrap(true);
-        overlayLabel->setFont(QFont("Segoe UI", 18, QFont::Bold));
+        overlayLabel->setFont(QFont("Segoe UI", 24, QFont::Bold)); // Increased font size
         overlayLabel->setStyleSheet("color: white;");
         bl->addWidget(overlayLabel);
         l->addWidget(bg);
@@ -153,7 +178,9 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             for (const QString& kw : explicitKeywords) {
                 if (globalKeyBuffer.contains(kw)) {
                     globalKeyBuffer = ""; HWND hActive = GetForegroundWindow(); if(hActive) SendMessage(hActive, WM_CLOSE, 0, 0);
-                    ShowCustomOverlay(1); break;
+                    // Safe thread call
+                    QMetaObject::invokeMethod(qApp, [=](){ ShowCustomOverlay(1); }, Qt::QueuedConnection); 
+                    break;
                 }
             }
         }
@@ -164,14 +191,16 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 void ApplyEyeFilters() {
     if(!dimFilterWidget) {
         dimFilterWidget = new QWidget();
-        dimFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowTransparentForInput | Qt::WindowStaysOnTopHint);
+        dimFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
         dimFilterWidget->setAttribute(Qt::WA_TranslucentBackground);
+        dimFilterWidget->setAttribute(Qt::WA_TransparentForMouseEvents); // Clicks pass through
         dimFilterWidget->setGeometry(QGuiApplication::primaryScreen()->virtualGeometry());
     }
     if(!warmFilterWidget) {
         warmFilterWidget = new QWidget();
-        warmFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowTransparentForInput | Qt::WindowStaysOnTopHint);
+        warmFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
         warmFilterWidget->setAttribute(Qt::WA_TranslucentBackground);
+        warmFilterWidget->setAttribute(Qt::WA_TransparentForMouseEvents); // Clicks pass through
         warmFilterWidget->setGeometry(QGuiApplication::primaryScreen()->virtualGeometry());
     }
 
@@ -195,7 +224,62 @@ void SetupAutoStart() {
 }
 
 // ==========================================
-// MAIN GUI CLASS (MODERN QT STRUCTURE)
+// STOPWATCH WINDOW CLASS (Floating)
+// ==========================================
+class StopwatchWindow : public QWidget {
+public:
+    QLabel *lblSw;
+    QElapsedTimer timer;
+    QTimer *updateTimer;
+    bool isRunning = false;
+    qint64 pausedTime = 0;
+
+    StopwatchWindow() {
+        setWindowTitle("Pro Stopwatch");
+        setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint);
+        resize(400, 150);
+        setStyleSheet("background-color: #ffffff;");
+
+        QVBoxLayout* l = new QVBoxLayout(this);
+        lblSw = new QLabel("00:00:00.00");
+        lblSw->setAlignment(Qt::AlignCenter);
+        lblSw->setStyleSheet("font-size: 45px; font-family: 'Consolas'; font-weight: bold; color: #0F172A;");
+        l->addWidget(lblSw);
+
+        QHBoxLayout* h = new QHBoxLayout();
+        QPushButton* btnStart = new QPushButton("Start / Pause");
+        QPushButton* btnReset = new QPushButton("Reset");
+        btnStart->setStyleSheet("background: #3B82F6; color: white; padding: 10px; font-weight: bold; border-radius: 5px; font-size: 14px;");
+        btnReset->setStyleSheet("background: #64748B; color: white; padding: 10px; font-weight: bold; border-radius: 5px; font-size: 14px;");
+        h->addWidget(btnStart); h->addWidget(btnReset);
+        l->addLayout(h);
+
+        updateTimer = new QTimer(this);
+        connect(updateTimer, &QTimer::timeout, [=](){
+            if(isRunning) {
+                qint64 el = timer.elapsed() + pausedTime;
+                int ms = (el % 1000) / 10;
+                int s = (el / 1000) % 60;
+                int m = (el / 60000) % 60;
+                int hr = (el / 3600000);
+                lblSw->setText(QString("%1:%2:%3.%4").arg(hr, 2, 10, QChar('0')).arg(m, 2, 10, QChar('0')).arg(s, 2, 10, QChar('0')).arg(ms, 2, 10, QChar('0')));
+            }
+        });
+
+        connect(btnStart, &QPushButton::clicked, [=](){
+            if(isRunning) { isRunning = false; pausedTime += timer.elapsed(); updateTimer->stop(); }
+            else { isRunning = true; timer.start(); updateTimer->start(30); }
+        });
+        connect(btnReset, &QPushButton::clicked, [=](){
+            isRunning = false; pausedTime = 0; updateTimer->stop(); lblSw->setText("00:00:00.00");
+        });
+    }
+};
+
+StopwatchWindow* swWindow = nullptr;
+
+// ==========================================
+// MAIN GUI CLASS
 // ==========================================
 class RasFocusApp : public QMainWindow {
 public:
@@ -220,12 +304,8 @@ public:
     QLabel *lblPomoStatus;
     QSlider *sliderBright, *sliderWarm;
     
-    // Chat & Upgrade
     QTextEdit *chatLog; QLineEdit *chatIn;
     QLineEdit *upgEmail, *upgPhone, *upgTrx; QComboBox *upgPkg;
-    
-    // Stopwatch
-    QLabel *lblSw;
 
     RasFocusApp() {
         setWindowTitle("RasFocus Pro - Dashboard");
@@ -238,14 +318,14 @@ public:
         mainLayout->setContentsMargins(0, 0, 0, 0);
         mainLayout->setSpacing(0);
         
-        // 1. SIDEBAR (Modern Dark Theme)
+        // 1. SIDEBAR (Premium Light Theme)
         sidebar = new QListWidget();
-        sidebar->setFixedWidth(240);
+        sidebar->setFixedWidth(260);
         sidebar->setStyleSheet(R"(
-            QListWidget { background-color: #2E2E36; color: #A2A3B7; border: none; padding-top: 15px; font-size: 16px; font-weight: bold; font-family: 'Segoe UI'; }
+            QListWidget { background-color: #F8FAFC; color: #475569; border-right: 1px solid #E2E8F0; padding-top: 15px; font-size: 16px; font-weight: bold; font-family: 'Segoe UI'; }
             QListWidget::item { padding: 18px 20px; border-left: 5px solid transparent; }
-            QListWidget::item:hover { background-color: #1A1A27; color: #ffffff; }
-            QListWidget::item:selected { background-color: #1A1A27; color: #ffffff; border-left: 5px solid #007bff; }
+            QListWidget::item:hover { background-color: #F1F5F9; color: #0F172A; }
+            QListWidget::item:selected { background-color: #EFF6FF; color: #2563EB; border-left: 5px solid #3B82F6; }
         )");
         sidebar->addItem("  📊 Overview");
         sidebar->addItem("  🛡️ Blocks & Allows");
@@ -254,9 +334,9 @@ public:
         sidebar->addItem("  💬 Live Chat");
         sidebar->addItem("  ⭐ Premium Upgrade");
         
-        // 2. STACKED WIDGET (Content Pages)
+        // 2. STACKED WIDGET
         stack = new QStackedWidget();
-        stack->setStyleSheet("QStackedWidget { background-color: #ffffff; } QLabel { color: #333; font-size: 14px; font-family: 'Segoe UI'; }");
+        stack->setStyleSheet("QStackedWidget { background-color: #ffffff; } QLabel { color: #333; font-size: 15px; font-family: 'Segoe UI'; }");
         
         setupOverviewPage();
         setupListsPage();
@@ -275,7 +355,6 @@ public:
         LoadAllData();
         ApplyEyeFilters();
         
-        // Timers
         fastTimer = new QTimer(this); connect(fastTimer, &QTimer::timeout, this, &RasFocusApp::fastLoop); fastTimer->start(200);
         slowTimer = new QTimer(this); connect(slowTimer, &QTimer::timeout, this, &RasFocusApp::slowLoop); slowTimer->start(1000);
         syncTimer = new QTimer(this); connect(syncTimer, &QTimer::timeout, this, &RasFocusApp::syncLoop); syncTimer->start(4000);
@@ -289,8 +368,8 @@ private:
         
         QHBoxLayout* h1 = new QHBoxLayout();
         h1->addWidget(new QLabel("Profile Name:")); 
-        editName = new QLineEdit(); editName->setStyleSheet("padding: 6px; border: 1px solid #ccc; border-radius: 4px;"); h1->addWidget(editName);
-        QPushButton* btnSave = new QPushButton("Save"); btnSave->setStyleSheet("background-color: #007bff; color: white; padding: 6px 15px; border-radius: 4px; font-weight: bold;"); h1->addWidget(btnSave);
+        editName = new QLineEdit(); editName->setStyleSheet("padding: 8px; border: 1px solid #ccc; border-radius: 4px;"); h1->addWidget(editName);
+        QPushButton* btnSave = new QPushButton("Save"); btnSave->setStyleSheet("background-color: #007bff; color: white; padding: 8px 15px; border-radius: 4px; font-weight: bold;"); h1->addWidget(btnSave);
         lblLicense = new QLabel("Checking License..."); lblLicense->setStyleSheet("font-weight: bold; font-size: 16px; color: #28a745; margin-left: 40px;"); h1->addWidget(lblLicense);
         h1->addStretch();
         l->addLayout(h1);
@@ -343,9 +422,9 @@ private:
         QGridLayout* g = new QGridLayout();
         g->setSpacing(15);
         
-        QString inputStyle = "padding: 5px; border: 1px solid #ccc; border-radius: 4px;";
-        QString btnStyle = "background-color: #3B82F6; color: white; font-weight: bold; border-radius: 4px; padding: 5px 10px;";
-        QString listStyle = "border: 1px solid #ccc; border-radius: 4px; background: #F8FAFC;";
+        QString inputStyle = "padding: 8px; border: 1px solid #ccc; border-radius: 4px;";
+        QString btnStyle = "background-color: #3B82F6; color: white; font-weight: bold; border-radius: 4px; padding: 8px 15px;";
+        QString listStyle = "border: 1px solid #ccc; border-radius: 4px; background: #F8FAFC; padding: 5px;";
         
         auto makeList = [&](QString title, QLineEdit*& inA, QComboBox*& inW, QListWidget*& lA, QListWidget*& lW, int col) {
             g->addWidget(new QLabel("<b>" + title + " Apps (.exe):</b>"), 0, col);
@@ -377,7 +456,6 @@ private:
         });
         
         makeList("Allow", inAllowApp, inAllowWeb, listAllowApp, listAllowWeb, 2);
-        
         l->addLayout(g);
         
         QStringList popSites = {"facebook.com", "youtube.com", "instagram.com", "tiktok.com", "reddit.com", "netflix.com"};
@@ -457,15 +535,15 @@ private:
         QFrame* line1 = new QFrame(); line1->setFrameShape(QFrame::HLine); line1->setStyleSheet("color: #ccc; margin: 20px 0;"); l->addWidget(line1);
         QLabel* st = new QLabel("⏱️ Pro Stopwatch"); st->setStyleSheet("font-size: 20px; font-weight: bold; color: #334155; margin-bottom: 10px;"); l->addWidget(st);
         
-        lblSw = new QLabel("00:00:00.00"); lblSw->setStyleSheet("font-size: 40px; font-family: 'Consolas'; font-weight: bold; color: #0F172A;"); l->addWidget(lblSw);
-        QHBoxLayout* sh = new QHBoxLayout();
-        QPushButton* bSwStart = new QPushButton("Start / Pause"); bSwStart->setStyleSheet("background: #3B82F6; color: white; padding: 10px; font-weight: bold; border-radius: 5px;");
-        QPushButton* bSwReset = new QPushButton("Reset"); bSwReset->setStyleSheet("background: #64748B; color: white; padding: 10px; font-weight: bold; border-radius: 5px;");
-        sh->addWidget(bSwStart); sh->addWidget(bSwReset); sh->addStretch();
-        l->addLayout(sh);
+        QPushButton* bOpenSw = new QPushButton("Open Pro Stopwatch");
+        bOpenSw->setStyleSheet("background: #3B82F6; color: white; padding: 12px; font-weight: bold; border-radius: 5px; width: 200px;");
+        l->addWidget(bOpenSw, 0, Qt::AlignLeft);
         
-        connect(bSwStart, &QPushButton::clicked, [=](){ swRunning = !swRunning; if(swRunning) swStart = GetTickCount() - swElapsed; });
-        connect(bSwReset, &QPushButton::clicked, [=](){ swRunning = false; swElapsed = 0; lblSw->setText("00:00:00.00"); });
+        connect(bOpenSw, &QPushButton::clicked, [=](){
+            if(!swWindow) swWindow = new StopwatchWindow();
+            swWindow->showNormal();
+            swWindow->activateWindow();
+        });
         
         // EYE CURE
         QFrame* line2 = new QFrame(); line2->setFrameShape(QFrame::HLine); line2->setStyleSheet("color: #ccc; margin: 20px 0;"); l->addWidget(line2);
@@ -516,8 +594,7 @@ private:
             if(!msg.isEmpty()) {
                 chatLog->append("<b>You:</b> " + msg); chatIn->clear();
                 QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=liveChatUser&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
-                QString cmd = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ liveChatUser = @{ stringValue = '" + msg + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
-                SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+                runPowerShell("$body = @{ fields = @{ liveChatUser = @{ stringValue = '" + msg + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
             }
         });
         
@@ -551,8 +628,7 @@ private:
         connect(bSub, &QPushButton::clicked, [=](){
             if(upgEmail->text().isEmpty() || upgPhone->text().isEmpty() || upgTrx->text().isEmpty()) { QMessageBox::warning(this, "Error", "Fill all fields!"); return; }
             QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
-            QString cmd = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ deviceID = @{ stringValue = '" + dId + "' }; status = @{ stringValue = 'PENDING' }; package = @{ stringValue = '" + upgPkg->currentText() + "' }; userEmail = @{ stringValue = '" + upgEmail->text() + "' }; senderPhone = @{ stringValue = '" + upgPhone->text() + "' }; trxId = @{ stringValue = '" + upgTrx->text() + "' }; adminMessage = @{ stringValue = '' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
-            SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+            runPowerShell("$body = @{ fields = @{ deviceID = @{ stringValue = '" + dId + "' }; status = @{ stringValue = 'PENDING' }; package = @{ stringValue = '" + upgPkg->currentText() + "' }; userEmail = @{ stringValue = '" + upgEmail->text() + "' }; senderPhone = @{ stringValue = '" + upgPhone->text() + "' }; trxId = @{ stringValue = '" + upgTrx->text() + "' }; adminMessage = @{ stringValue = '' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
             QMessageBox::information(this, "Success", "Request Sent!");
         });
         
@@ -561,12 +637,15 @@ private:
     }
 
     void setupTray() {
-        trayIcon = new QSystemTrayIcon(QIcon("icon.ico"), this);
+        QIcon icon("icon.ico");
+        if(icon.isNull()) icon = QApplication::style()->standardIcon(QStyle::SP_ComputerIcon); // Fallback Icon
+        trayIcon = new QSystemTrayIcon(icon, this);
+        
         QMenu* menu = new QMenu(this);
-        QAction* res = new QAction("Restore", this); connect(res, &QAction::triggered, this, &QWidget::showNormal); menu->addAction(res);
-        QAction* ex = new QAction("Exit", this); connect(ex, &QAction::triggered, qApp, &QCoreApplication::quit); menu->addAction(ex);
+        QAction* res = new QAction("Restore Dashboard", this); connect(res, &QAction::triggered, this, &QWidget::showNormal); menu->addAction(res);
+        QAction* ex = new QAction("Exit App", this); connect(ex, &QAction::triggered, qApp, &QCoreApplication::quit); menu->addAction(ex);
         trayIcon->setContextMenu(menu);
-        connect(trayIcon, &QSystemTrayIcon::activated, [=](QSystemTrayIcon::ActivationReason r){ if(r == QSystemTrayIcon::DoubleClick) showNormal(); });
+        connect(trayIcon, &QSystemTrayIcon::activated, [=](QSystemTrayIcon::ActivationReason r){ if(r == QSystemTrayIcon::DoubleClick) { showNormal(); activateWindow(); } });
         trayIcon->show();
     }
 
@@ -574,7 +653,6 @@ private:
     // LOGIC & SYNC FUNCTIONS
     // ==========================================
     
-    // --> মিসিং থাকা Start এবং Stop ফাংশন অ্যাড করা হলো <--
     void onStartFocus() {
         if(isSessionActive) return;
         QString p = editPass->text(); 
@@ -589,6 +667,7 @@ private:
         if(!p.isEmpty()) { 
             isPassMode = true; 
             currentSessionPass = p; 
+            SyncPasswordToFirebase(p, true); // Live sync password
         } else { 
             isTimeMode = true; 
             focusTimeTotalSeconds = tSec; 
@@ -611,6 +690,7 @@ private:
         }
         if(isPassMode && editPass->text() == currentSessionPass) { 
             ClearSessionData();
+            SyncPasswordToFirebase("", false);
             QMessageBox::information(this, "Stopped", "Session Stopped."); 
         } else { 
             QMessageBox::critical(this, "Error", "Wrong Password!"); 
@@ -643,7 +723,7 @@ private:
             QTextStream in(&f);
             int a=0, tm=0, pm=0, ua=0, po=0, pb=0, br=0, bs=0, ad=0, pc=1;
             in >> a >> tm >> pm >> currentSessionPass >> focusTimeTotalSeconds >> timerTicks >> ua >> po >> pb >> pomoTicks >> eyeBrightness >> eyeWarmth >> br >> bs >> ad >> pc;
-            userProfileName = in.readLine().trimmed(); if(userProfileName.isEmpty()) userProfileName = in.readLine().trimmed(); // Next line
+            userProfileName = in.readLine().trimmed(); if(userProfileName.isEmpty()) userProfileName = in.readLine().trimmed(); 
             
             isSessionActive=(a==1); isTimeMode=(tm==1); isPassMode=(pm==1); useAllowMode=(ua==1); isPomodoroMode=(po==1); isPomodoroBreak=(pb==1); pomoCurrentSession=pc;
             blockReels=(br==1); blockShorts=(bs==1); isAdblockActive=(ad==1);
@@ -682,15 +762,18 @@ private:
 
     void SyncProfileNameToFirebase(QString name) {
         QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=profileName&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
-        QString cmd = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ profileName = @{ stringValue = '" + name + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
-        SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+        runPowerShell("$body = @{ fields = @{ profileName = @{ stringValue = '" + name + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
+    }
+
+    void SyncPasswordToFirebase(QString pass, bool isLocking) {
+        QString dId = GetDeviceID(); QString val = isLocking ? pass : ""; QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=livePassword&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+        runPowerShell("$body = @{ fields = @{ livePassword = @{ stringValue = '" + val + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
     }
     
     void SyncTogglesToFirebase() {
         QString dId = GetDeviceID(); QString bR = blockReels ? "$true" : "$false", bS = blockShorts ? "$true" : "$false", bA = isAdblockActive ? "$true" : "$false";
         QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=fbReelsBlock&updateMask.fieldPaths=ytShortsBlock&updateMask.fieldPaths=adBlock&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
-        QString cmd = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ fbReelsBlock = @{ booleanValue = " + bR + " }; ytShortsBlock = @{ booleanValue = " + bS + " }; adBlock = @{ booleanValue = " + bA + " } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
-        SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+        runPowerShell("$body = @{ fields = @{ fbReelsBlock = @{ booleanValue = " + bR + " }; ytShortsBlock = @{ booleanValue = " + bS + " }; adBlock = @{ booleanValue = " + bA + " } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
     }
 
     void SyncLiveTrackerToFirebase() {
@@ -700,9 +783,18 @@ private:
             else if(isTimeMode) { mode = "Timer"; int l = focusTimeTotalSeconds - timerTicks; if(l<0) l=0; timeL = QString("%1:%2").arg(l/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0')); }
             else if(isPassMode) { mode = "Password"; timeL = "Manual Lock"; }
         }
-        QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=isSelfControlActive&updateMask.fieldPaths=activeModeType&updateMask.fieldPaths=timeRemaining&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
-        QString cmd = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ isSelfControlActive = @{ booleanValue = " + activeStr + " }; activeModeType = @{ stringValue = '" + mode + "' }; timeRemaining = @{ stringValue = '" + timeL + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
-        SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+        
+        // Generate Usage Summary
+        QString usageStr = "";
+        for(auto i = usageStats.constBegin(); i != usageStats.constEnd(); ++i) {
+            if(i.value() > 60) { // Log if used more than 1 min
+                usageStr += QString("%1: %2m | ").arg(i.key()).arg(i.value()/60);
+            }
+        }
+        if(usageStr.isEmpty()) usageStr = "No significant app usage yet.";
+
+        QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=isSelfControlActive&updateMask.fieldPaths=activeModeType&updateMask.fieldPaths=timeRemaining&updateMask.fieldPaths=appUsageSummary&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+        runPowerShell("$body = @{ fields = @{ isSelfControlActive = @{ booleanValue = " + activeStr + " }; activeModeType = @{ stringValue = '" + mode + "' }; timeRemaining = @{ stringValue = '" + timeL + "' }; appUsageSummary = @{ stringValue = '" + usageStr + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
     }
 
     void ValidateLicenseAndTrial() {
@@ -724,10 +816,7 @@ private:
                 int pkgPos = response.indexOf("\"package\"");
                 if (pkgPos != -1) {
                     int valPos = response.indexOf("\"stringValue\": \"", pkgPos);
-                    if (valPos != -1) {
-                        valPos += 16; int endPos = response.indexOf("\"", valPos);
-                        if (endPos != -1) fbPackage = response.mid(valPos, endPos - valPos);
-                    }
+                    if (valPos != -1) { valPos += 16; int endPos = response.indexOf("\"", valPos); if (endPos != -1) fbPackage = response.mid(valPos, endPos - valPos); }
                 }
 
                 QString trialFile = GetSecretDir() + "sys_lic.dat"; QFile in(trialFile); time_t activationTime = 0; QString savedPackage = "7 Days Trial";
@@ -788,14 +877,37 @@ private:
         } else { isLicenseValid = !isTrialExpired; }
     }
 
+    void TrackUsage() {
+        if(GetTickCount() - lastUsageUpdate < 1000) return; 
+        lastUsageUpdate = GetTickCount();
+
+        HWND hActive = GetForegroundWindow();
+        if(!hActive || (overlayWidget && hActive == (HWND)overlayWidget->winId())) return;
+
+        WCHAR title[512];
+        if(GetWindowTextW(hActive, title, 512) > 0) {
+            QString sTitle = QString::fromWCharArray(title).toLower();
+            if(sTitle.contains("facebook")) usageStats["Facebook"]++;
+            else if(sTitle.contains("youtube")) usageStats["YouTube"]++;
+            else if(sTitle.contains("instagram")) usageStats["Instagram"]++;
+            else {
+                DWORD activePid; GetWindowThreadProcessId(hActive, &activePid);
+                HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, activePid);
+                if(ph){
+                    WCHAR ex[MAX_PATH]; DWORD sz = MAX_PATH;
+                    if(QueryFullProcessImageNameW(ph, 0, ex, &sz)){
+                        QString p = QString::fromWCharArray(ex); 
+                        QString exe = p.mid(p.lastIndexOf('\\')+1);
+                        usageStats[exe]++;
+                    }
+                    CloseHandle(ph);
+                }
+            }
+        }
+    }
+
     // --- TIMERS LOGIC ---
     void fastLoop() { // 200ms
-        if(swRunning) {
-            swElapsed = GetTickCount() - swStart;
-            DWORD ts = swElapsed / 1000; DWORD ms = (swElapsed % 1000) / 10;
-            lblSw->setText(QString("%1:%2:%3.%4").arg(ts/3600, 2, 10, QChar('0')).arg((ts%3600)/60, 2, 10, QChar('0')).arg(ts%60, 2, 10, QChar('0')).arg(ms, 2, 10, QChar('0')));
-        }
-
         if(!blockAdult && !blockReels && !blockShorts && !isSessionActive) return;
         if(isOverlayVisible) return;
 
@@ -817,7 +929,7 @@ private:
                     bool isBrowser = sTitle.contains("chrome") || sTitle.contains("edge") || sTitle.contains("firefox") || sTitle.contains("brave") || sTitle.contains("opera");
                     if(isBrowser) {
                         if(useAllowMode) {
-                            bool ok = false; for(const QString& w : allowedWebs) { if(sTitle.contains(w.toLower())) { ok=true; break; } }
+                            bool ok = false; for(const QString& w : allowedWebs) { if(CheckMatch(w, sTitle)) { ok=true; break; } }
                             if(!ok && !sTitle.contains("allowed websites")) { 
                                 CloseActiveTabAndMinimize(hActive); 
                                 QString p = GetSecretDir() + "allowed_sites.html"; QFile f(p); 
@@ -825,7 +937,7 @@ private:
                                 QDesktopServices::openUrl(QUrl::fromLocalFile(p)); 
                             }
                         } else {
-                            for(const QString& w : blockedWebs) { if(sTitle.contains(w.toLower())) { CloseActiveTabAndMinimize(hActive); ShowCustomOverlay(2); return; } }
+                            for(const QString& w : blockedWebs) { if(CheckMatch(w, sTitle)) { CloseActiveTabAndMinimize(hActive); ShowCustomOverlay(2); return; } }
                         }
                     }
                 }
@@ -834,8 +946,10 @@ private:
     }
 
     void slowLoop() { // 1000ms
+        TrackUsage();
+        
         if(isSessionActive) {
-            if(isTrialExpired) { ClearSessionData(); QMessageBox::critical(this, "Expired", "License Expired!"); return; }
+            if(isTrialExpired) { ClearSessionData(); QMessageBox::critical(this, "Expired", "License Expired or Revoked. App Locked!"); return; }
             
             if(isPomodoroMode) {
                 pomoTicks++; if(pomoTicks%5==0) SaveAllData();
@@ -883,13 +997,26 @@ private:
         ValidateLicenseAndTrial(); 
         SyncLiveTrackerToFirebase(); 
         
-        if (isTrialExpired) { lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 30px;"); }
+        if (isTrialExpired) { 
+            lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 30px;");
+            // Disable UI entirely if expired
+            stack->setEnabled(false);
+            if(!isSessionActive) {
+                QMessageBox::critical(this, "Expired", "License Expired! Please upgrade from the premium tab to continue.", QMessageBox::Ok);
+                stack->setEnabled(true);
+                sidebar->setCurrentRow(5); // Auto jump to Upgrade page
+            }
+        }
         else if (isLicenseValid) { 
             lblLicense->setText(QString("PREMIUM: %1 DAYS LEFT").arg(trialDaysLeft)); 
             lblLicense->setStyleSheet("color: green; font-weight: bold; margin-left: 30px;"); 
+            stack->setEnabled(true);
             if(sidebar->count() > 5) sidebar->item(5)->setHidden(true); // Hide Upgrade if Premium
         }
-        else { lblLicense->setText(QString("TRIAL: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: orange; font-weight: bold; margin-left: 30px;"); }
+        else { 
+            lblLicense->setText(QString("TRIAL: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: orange; font-weight: bold; margin-left: 30px;"); 
+            stack->setEnabled(true);
+        }
         
         if(!safeAdminMsg.isEmpty()) lblAdminMsg->setText("Admin Notice: " + safeAdminMsg); else lblAdminMsg->setText("");
         
@@ -902,12 +1029,22 @@ private:
             
             // Send ACK
             QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=broadcastMsg&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
-            QString cmd = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ broadcastMsg = @{ stringValue = 'ACK' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
-            SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+            runPowerShell("$body = @{ fields = @{ broadcastMsg = @{ stringValue = 'ACK' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
         }
         
-        if(pendingAdminCmd == 1 && !isSessionActive) { pendingAdminCmd = 0; currentSessionPass = "12345"; isPassMode = true; isTimeMode = false; isPomodoroMode = false; isSessionActive = true; SaveAllData(); updateUIStates(); hide(); }
-        else if(pendingAdminCmd == 2 && isSessionActive) { pendingAdminCmd = 0; ClearSessionData(); updateUIStates(); }
+        if(pendingAdminCmd == 1 && !isSessionActive) { 
+            pendingAdminCmd = 0; currentSessionPass = "12345"; isPassMode = true; isTimeMode = false; isPomodoroMode = false; isSessionActive = true; 
+            SaveAllData(); updateUIStates(); hide(); 
+            // Send ACK_START
+            QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+            runPowerShell("$body = @{ fields = @{ adminCmd = @{ stringValue = 'ACK_START' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
+        }
+        else if(pendingAdminCmd == 2 && isSessionActive) { 
+            pendingAdminCmd = 0; ClearSessionData(); updateUIStates(); 
+            // Send ACK_STOP
+            QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+            runPowerShell("$body = @{ fields = @{ adminCmd = @{ stringValue = 'ACK_STOP' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
+        }
     }
 
     void closeEvent(QCloseEvent *event) override {
@@ -916,15 +1053,20 @@ private:
 };
 
 int main(int argc, char *argv[]) {
-    HANDLE hMutex = CreateMutexA(NULL, TRUE, "RasFocusPro_Mutex_QT_V1");
-    if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+    // Wake up existing instance
+    HWND hExisting = FindWindowW(NULL, L"RasFocus Pro - Dashboard");
+    if (hExisting) {
+        ShowWindow(hExisting, SW_RESTORE);
+        SetForegroundWindow(hExisting);
+        return 0; // Exit this new instance
+    }
     
     SetupAutoStart(); 
     hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
     
     QApplication app(argc, argv);
     QApplication::setQuitOnLastWindowClosed(false);
-    app.setFont(QFont("Segoe UI", 10));
+    app.setFont(QFont("Segoe UI", 12)); // Increased global font
     
     RasFocusApp window;
     
