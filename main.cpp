@@ -29,7 +29,6 @@
 #include <QStackedWidget>
 #include <QSlider>
 #include <QTextEdit>
-#include <QPainter>
 
 // Windows API
 #include <windows.h>
@@ -42,7 +41,7 @@
 
 using namespace std;
 
-extern void ToggleAdBlock(bool enable); // From adblocker.cpp
+extern void ToggleAdBlock(bool enable); 
 
 // ==========================================
 // GLOBALS & DATA
@@ -79,7 +78,7 @@ HHOOK hKeyboardHook;
 QString globalKeyBuffer = "";
 
 // ==========================================
-// UTILITY FUNCTIONS (Win32 & Qt)
+// UTILITY FUNCTIONS
 // ==========================================
 QString GetDeviceID() {
     char compName[MAX_COMPUTERNAME_LENGTH + 1]; DWORD size = sizeof(compName); GetComputerNameA(compName, &size);
@@ -282,15 +281,11 @@ public:
     }
 
 private:
-    // ==========================================
-    // UI SETUP FUNCTIONS
-    // ==========================================
     void setupOverviewPage() {
         QWidget* page = new QWidget();
         QVBoxLayout* l = new QVBoxLayout(page);
         l->setContentsMargins(40, 40, 40, 40);
         
-        // Header Section
         QHBoxLayout* h1 = new QHBoxLayout();
         h1->addWidget(new QLabel("Profile Name:")); 
         editName = new QLineEdit(); editName->setStyleSheet("padding: 6px; border: 1px solid #ccc; border-radius: 4px;"); h1->addWidget(editName);
@@ -302,7 +297,6 @@ private:
         
         l->addSpacing(30);
         
-        // Control Section
         QGridLayout* g = new QGridLayout();
         g->setSpacing(20);
         g->addWidget(new QLabel("<b>Friend Control (Password):</b>"), 0, 0); 
@@ -325,7 +319,6 @@ private:
         
         lblStatus = new QLabel(""); lblStatus->setStyleSheet("color: #EF4444; font-weight: bold; margin-top: 15px;"); l->addWidget(lblStatus);
         lblTimer = new QLabel("Status: Ready"); lblTimer->setStyleSheet("font-size: 20px; font-weight: bold; color: #3B82F6; margin-top: 20px;"); l->addWidget(lblTimer);
-        
         lblAdminMsg = new QLabel(""); lblAdminMsg->setStyleSheet("color: #8B5CF6; font-weight: bold; font-size: 15px; margin-top: 20px;"); l->addWidget(lblAdminMsg);
 
         l->addStretch();
@@ -406,7 +399,6 @@ private:
         sub->setStyleSheet("color: #64748B; margin-bottom: 30px;");
         l->addWidget(sub);
         
-        // CSS to make checkboxes look like professional toggle switches
         QString toggleStyle = R"(
             QCheckBox { font-size: 16px; padding: 15px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; margin-bottom: 10px; font-weight: bold; color: #334155; }
             QCheckBox::indicator { width: 45px; height: 24px; border-radius: 12px; }
@@ -656,6 +648,101 @@ private:
         SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
     }
 
+    void SyncLiveTrackerToFirebase() {
+        QString dId = GetDeviceID(); QString mode = "None"; QString timeL = "00:00"; QString activeStr = isSessionActive ? "$true" : "$false";
+        if (isSessionActive) {
+            if(isPomodoroMode) { mode = "Pomodoro"; int l = (pomoLengthMin*60) - pomoTicks; if(isPomodoroBreak) l = (2*60) - pomoTicks; if(l<0) l=0; timeL = QString("%1:%2").arg(l/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0')); }
+            else if(isTimeMode) { mode = "Timer"; int l = focusTimeTotalSeconds - timerTicks; if(l<0) l=0; timeL = QString("%1:%2").arg(l/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0')); }
+            else if(isPassMode) { mode = "Password"; timeL = "Manual Lock"; }
+        }
+        QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=isSelfControlActive&updateMask.fieldPaths=activeModeType&updateMask.fieldPaths=timeRemaining&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+        QString cmd = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ isSelfControlActive = @{ booleanValue = " + activeStr + " }; activeModeType = @{ stringValue = '" + mode + "' }; timeRemaining = @{ stringValue = '" + timeL + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+        SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+    }
+
+    void ValidateLicenseAndTrial() {
+        QString dId = GetDeviceID(); 
+        HINTERNET hInternet = InternetOpenA("RasFocus", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+        if (hInternet) {
+            DWORD timeout = 4000;
+            InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+            InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+            
+            QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+            HINTERNET hConnect = InternetOpenUrlA(hInternet, url.toStdString().c_str(), NULL, 0, INTERNET_FLAG_RELOAD, 0);
+            if (hConnect) {
+                char buffer[1024]; DWORD bytesRead; QString response = "";
+                while (InternetReadFile(hConnect, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) { buffer[bytesRead] = '\0'; response += buffer; }
+                InternetCloseHandle(hConnect);
+
+                QString fbPackage = "7 Days Trial";
+                int pkgPos = response.indexOf("\"package\"");
+                if (pkgPos != -1) {
+                    int valPos = response.indexOf("\"stringValue\": \"", pkgPos);
+                    if (valPos != -1) {
+                        valPos += 16; int endPos = response.indexOf("\"", valPos);
+                        if (endPos != -1) fbPackage = response.mid(valPos, endPos - valPos);
+                    }
+                }
+
+                QString trialFile = GetSecretDir() + "sys_lic.dat"; QFile in(trialFile); time_t activationTime = 0; QString savedPackage = "7 Days Trial";
+                if (in.open(QIODevice::ReadOnly|QIODevice::Text)) { QTextStream inStream(&in); inStream >> activationTime; savedPackage = inStream.readLine().trimmed(); in.close(); } 
+                else { 
+                    activationTime = time(0); savedPackage = fbPackage;
+                    QFile out(trialFile); if(out.open(QIODevice::WriteOnly|QIODevice::Text)){ QTextStream outStream(&out); outStream << activationTime << " " << savedPackage; out.close(); }
+                }
+
+                int totalDays = (savedPackage.contains("1 Year")) ? 365 : ((savedPackage.contains("6 Months")) ? 180 : 7);
+                double daysPassed = difftime(time(0), activationTime) / 86400.0;
+                trialDaysLeft = totalDays - (int)daysPassed;
+
+                bool explicitlyRevoked = response.contains("\"stringValue\": \"REVOKED\"");
+                bool explicitlyApproved = response.contains("\"stringValue\": \"APPROVED\"");
+
+                if (explicitlyRevoked) { isLicenseValid = false; isTrialExpired = true; trialDaysLeft = 0; } 
+                else { if (trialDaysLeft <= 0) { isTrialExpired = true; trialDaysLeft = 0; isLicenseValid = false; } else { isTrialExpired = false; isLicenseValid = explicitlyApproved; } }
+
+                auto parseBool = [&](QString fName, bool defaultVal) {
+                    int pos = response.indexOf("\"" + fName + "\"");
+                    if(pos != -1) { int vPos = response.indexOf("\"booleanValue\":", pos); if(vPos != -1) { if(response.indexOf("true", vPos) < response.indexOf("}", vPos)) return true; if(response.indexOf("false", vPos) < response.indexOf("}", vPos)) return false; } }
+                    return defaultVal;
+                };
+                
+                blockAdult = parseBool("adultBlock", blockAdult);
+                
+                int msgPos = response.indexOf("\"adminMessage\""); 
+                if (msgPos != -1) { int valPos = response.indexOf("\"stringValue\": \"", msgPos); if (valPos != -1) { valPos += 16; int endPos = response.indexOf("\"", valPos); if(endPos != -1) safeAdminMsg = response.mid(valPos, endPos - valPos); } }
+
+                int cmdPos = response.indexOf("\"adminCmd\"");
+                if (cmdPos != -1) {
+                    int vPos = response.indexOf("\"stringValue\": \"", cmdPos);
+                    if (vPos != -1) {
+                        vPos += 16; int ePos = response.indexOf("\"", vPos); QString cmd = response.mid(vPos, ePos - vPos);
+                        if (cmd == "START_FOCUS" && !isSessionActive) { pendingAdminCmd = 1; }
+                        else if (cmd == "STOP_FOCUS" && isSessionActive) { pendingAdminCmd = 2; }
+                    }
+                }
+                
+                int bcastPos = response.indexOf("\"broadcastMsg\"");
+                if (bcastPos != -1) {
+                    int vPos = response.indexOf("\"stringValue\": \"", bcastPos);
+                    if (vPos != -1) { 
+                        vPos += 16; int ePos = response.indexOf("\"", vPos); QString bMsg = response.mid(vPos, ePos - vPos);
+                        if (!bMsg.isEmpty() && bMsg != "ACK" && bMsg != currentBroadcastMsg) pendingBroadcastMsg = bMsg;
+                    }
+                }
+
+                int chatPos = response.indexOf("\"liveChatAdmin\"");
+                if (chatPos != -1) {
+                    int cvPos = response.indexOf("\"stringValue\": \"", chatPos);
+                    if (cvPos != -1) { cvPos += 16; int cePos = response.indexOf("\"", cvPos); QString adminChatStr = response.mid(cvPos, cePos - cvPos);
+                        if (!adminChatStr.isEmpty() && adminChatStr != lastAdminChat) { lastAdminChat = adminChatStr; pendingAdminChatStr = adminChatStr; }
+                    }
+                }
+            } InternetCloseHandle(hInternet);
+        } else { isLicenseValid = !isTrialExpired; }
+    }
+
     // --- TIMERS LOGIC ---
     void fastLoop() { // 200ms
         if(swRunning) {
@@ -688,17 +775,8 @@ private:
                             bool ok = false; for(const QString& w : allowedWebs) { if(sTitle.contains(w.toLower())) { ok=true; break; } }
                             if(!ok && !sTitle.contains("allowed websites")) { 
                                 CloseActiveTabAndMinimize(hActive); 
-                                
-                                // Generate & Open Allowed Websites HTML
-                                QString p = GetSecretDir() + "allowed_sites.html"; 
-                                QFile f(p); 
-                                if(f.open(QIODevice::WriteOnly)){ 
-                                    QTextStream out(&f); 
-                                    out<<"<html><body style='text-align:center; font-family:sans-serif; margin-top:50px;'><h2>Focus Mode is Active!</h2><p>Allowed Sites:</p>"; 
-                                    for(auto x:allowedWebs) out<<"<a href='https://"<<x<<"' style='display:inline-block; margin:10px; padding:10px; background:#007bff; color:white; text-decoration:none; border-radius:5px;'>"<<x<<"</a><br>"; 
-                                    out<<"</body></html>"; 
-                                    f.close(); 
-                                } 
+                                QString p = GetSecretDir() + "allowed_sites.html"; QFile f(p); 
+                                if(f.open(QIODevice::WriteOnly)){ QTextStream out(&f); out<<"<html><body style='text-align:center; font-family:sans-serif; margin-top:50px;'><h2>Focus Mode is Active!</h2><p>Allowed Sites:</p>"; for(auto x:allowedWebs) out<<"<a href='https://"<<x<<"' style='display:inline-block; margin:10px; padding:10px; background:#007bff; color:white; text-decoration:none; border-radius:5px;'>"<<x<<"</a><br>"; out<<"</body></html>"; f.close(); } 
                                 QDesktopServices::openUrl(QUrl::fromLocalFile(p)); 
                             }
                         } else {
@@ -718,15 +796,8 @@ private:
                 pomoTicks++; if(pomoTicks%5==0) SaveAllData();
                 if(!isPomodoroBreak && pomoTicks >= pomoLengthMin*60) { 
                     isPomodoroBreak=true; pomoTicks=0; 
-                    
-                    // Generate & Open Pomodoro Break HTML
-                    QString p = GetSecretDir() + "pomodoro_break.html"; 
-                    QFile f(p); 
-                    if(f.open(QIODevice::WriteOnly)){ 
-                        QTextStream out(&f); 
-                        out<<"<html><body style='background:#1e3c72; color:white; text-align:center; padding-top:100px; font-family:sans-serif;'><h1>Time to Relax & Drink Water!</h1><p>Break Started.</p></body></html>"; 
-                        f.close(); 
-                    } 
+                    QString p = GetSecretDir() + "pomodoro_break.html"; QFile f(p); 
+                    if(f.open(QIODevice::WriteOnly)){ QTextStream out(&f); out<<"<html><body style='background:#1e3c72; color:white; text-align:center; padding-top:100px; font-family:sans-serif;'><h1>Time to Relax & Drink Water!</h1><p>Break Started.</p></body></html>"; f.close(); } 
                     QDesktopServices::openUrl(QUrl::fromLocalFile(p));
                 }
                 else if(isPomodoroBreak && pomoTicks >= 2*60) { isPomodoroBreak=false; pomoTicks=0; pomoCurrentSession++; if(pomoCurrentSession > pomoTotalSessions) { ClearSessionData(); QMessageBox::information(this, "Done", "Pomodoro Complete!"); } }
@@ -765,7 +836,7 @@ private:
 
     void syncLoop() { // 4000ms
         ValidateLicenseAndTrial(); 
-        SyncLiveTrackerToFirebase(); // <--- Added Live Tracker Missing Fix
+        SyncLiveTrackerToFirebase(); 
         
         if (isTrialExpired) { lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 30px;"); }
         else if (isLicenseValid) { 
@@ -779,7 +850,6 @@ private:
         
         if(!pendingAdminChatStr.isEmpty()) { chatLog->append("<b>Admin:</b> " + pendingAdminChatStr); pendingAdminChatStr = ""; }
         
-        // Broadcast Popup Fix
         if(!pendingBroadcastMsg.isEmpty() && pendingBroadcastMsg != "ACK") {
             currentBroadcastMsg = pendingBroadcastMsg;
             pendingBroadcastMsg = "";
@@ -801,7 +871,6 @@ private:
 };
 
 int main(int argc, char *argv[]) {
-    // Single instance check
     HANDLE hMutex = CreateMutexA(NULL, TRUE, "RasFocusPro_Mutex_QT_V1");
     if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
     
@@ -809,7 +878,7 @@ int main(int argc, char *argv[]) {
     hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
     
     QApplication app(argc, argv);
-    QApplication::setQuitOnLastWindowClosed(false); // Keeps running in tray
+    QApplication::setQuitOnLastWindowClosed(false);
     app.setFont(QFont("Segoe UI", 10));
     
     RasFocusApp window;
