@@ -9,7 +9,7 @@ find_package(Qt5 COMPONENTS Core Gui Widgets REQUIRED)
 
 # WIN32 ফ্ল্যাগটি CMD উইন্ডো হাইড করবে
 add_executable(RasFocus_Pro WIN32 
-    RasFocus_Pro.cpp 
+    main.cpp 
     adblocker.cpp 
     app.rc
 )
