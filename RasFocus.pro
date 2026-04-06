@@ -1,13 +1,19 @@
-QT += core gui widgets network
-CONFIG += c++17
-CONFIG -= app_bundle
-TARGET = RasFocus_Pro
+QT       += core gui widgets
 
-# Windows Libraries for Win32 API logic
-LIBS += -luser32 -lgdi32 -lcomctl32 -ladvapi32 -lshell32 -lws2_32 -ldwmapi -lwininet -lole32 -luuid
+CONFIG   += c++17
 
-SOURCES += \
-    main.cpp \
-    adblocker.cpp
+# উইন্ডোজের কনসোল হাইড করা
+win32 {
+    CONFIG -= console
+    # Windows এর সিস্টেম ফাংশন লিঙ্কার (খুবই জরুরি)
+    LIBS   += -luser32 -lshell32 -ladvapi32 -ldwmapi -lgdi32 -lOle32
+}
 
-RC_FILE = app.rc
+# প্রোজেক্টের নাম
+TARGET   = "RasFocus+AdultBlocker"
+TEMPLATE = app
+
+SOURCES  += main.cpp
+
+# আইকন ফাইল থাকলে আনকমেন্ট করো
+# RC_ICONS = icon.ico
