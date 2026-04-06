@@ -4,7 +4,7 @@ CONFIG   += c++17
 # MSVC-তে কনসোল (CMD) হাইড করার সঠিক নিয়ম
 win32: CONFIG += release windows
 
-TARGET = RasFocus_Pro
+TARGET = RasFocus+AdultBlocker
 TEMPLATE = app
 
 SOURCES += main.cpp \
