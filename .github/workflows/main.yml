@@ -33,8 +33,8 @@ jobs:
     - name: Package Dependencies (windeployqt)
       run: |
         mkdir dist
-        copy release\RasFocus+AdultBlocker.exe dist\
-        windeployqt dist\RasFocus+AdultBlocker.exe
+        copy release\RasFocus.pro.exe dist\
+        windeployqt dist\RasFocus.pro.exe
 
     - name: Upload Finished Project
       uses: actions/upload-artifact@v4
