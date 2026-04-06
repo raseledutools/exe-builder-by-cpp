@@ -29,6 +29,7 @@
 #include <QStackedWidget>
 #include <QSlider>
 #include <QTextEdit>
+#include <QPainter>
 
 // Windows API
 #include <windows.h>
@@ -572,6 +573,50 @@ private:
     // ==========================================
     // LOGIC & SYNC FUNCTIONS
     // ==========================================
+    
+    // --> মিসিং থাকা Start এবং Stop ফাংশন অ্যাড করা হলো <--
+    void onStartFocus() {
+        if(isSessionActive) return;
+        QString p = editPass->text(); 
+        int tSec = (spinHr->value() * 3600) + (spinMin->value() * 60);
+        
+        if(p.isEmpty() && tSec == 0) { 
+            QMessageBox::warning(this, "Error", "Set Password or Time!"); 
+            return; 
+        }
+        
+        useAllowMode = rbAllow->isChecked();
+        if(!p.isEmpty()) { 
+            isPassMode = true; 
+            currentSessionPass = p; 
+        } else { 
+            isTimeMode = true; 
+            focusTimeTotalSeconds = tSec; 
+            timerTicks = 0; 
+        }
+        
+        isSessionActive = true; 
+        editPass->clear();
+        SaveAllData();
+        updateUIStates();
+        QMessageBox::information(this, "Started", "Focus Mode Active. Hiding to tray.");
+        hide();
+    }
+    
+    void onStopFocus() {
+        if(!isSessionActive) return;
+        if(isTimeMode) { 
+            QMessageBox::warning(this, "Locked", "Time mode is active!"); 
+            return; 
+        }
+        if(isPassMode && editPass->text() == currentSessionPass) { 
+            ClearSessionData();
+            QMessageBox::information(this, "Stopped", "Session Stopped."); 
+        } else { 
+            QMessageBox::critical(this, "Error", "Wrong Password!"); 
+        }
+    }
+
     QStringList GetRunningAppsUI() {
         QStringList p; HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); PROCESSENTRY32W pe = {sizeof(pe)};
         if(Process32FirstW(h, &pe)) { do { QString n = QString::fromWCharArray(pe.szExeFile).toLower(); if(!systemApps.contains(n)) p << n; } while(Process32NextW(h, &pe)); }
