@@ -1,9 +1,8 @@
 QT       += core gui widgets
 CONFIG   += c++17
 
-# কনসোল (CMD) হাইড করার জন্য
-win32: CONFIG += release
-win32: QMAKE_LFLAGS += -mwindows
+# MSVC-তে কনসোল (CMD) হাইড করার সঠিক নিয়ম
+win32: CONFIG += release windows
 
 TARGET = RasFocus_Pro
 TEMPLATE = app
@@ -11,8 +10,8 @@ TEMPLATE = app
 SOURCES += main.cpp \
            adblocker.cpp
 
-# যদি আইকনের জন্য app.rc ফাইল থাকে
+# আইকন ফাইল
 RC_FILE = app.rc
 
-# Windows API Libraries
-win32: LIBS += -lwininet -ldwmapi -lole32 -luuid
+# Windows API Libraries (Linker Errors Fix)
+win32: LIBS += -lwininet -ldwmapi -lole32 -luuid -luser32 -ladvapi32
