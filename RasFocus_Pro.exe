@@ -686,8 +686,20 @@ private:
                     if(isBrowser) {
                         if(useAllowMode) {
                             bool ok = false; for(const QString& w : allowedWebs) { if(sTitle.contains(w.toLower())) { ok=true; break; } }
-                            if(!ok && !sTitle.contains("allowed websites")) { CloseActiveTabAndMinimize(hActive); 
-                                QString p = QDir::currentPath() + "/allowed_sites.html"; QFile f(p); if(f.open(QIODevice::WriteOnly)){ QTextStream out(&f); out<<"<html><body><h2>Allowed:</h2>"; for(auto x:allowedWebs) out<<"<a href='https://"<<x<<"'>"<<x<<"</a><br>"; out<<"</body></html>"; f.close(); } QDesktopServices::openUrl(QUrl::fromLocalFile(p)); 
+                            if(!ok && !sTitle.contains("allowed websites")) { 
+                                CloseActiveTabAndMinimize(hActive); 
+                                
+                                // Generate & Open Allowed Websites HTML
+                                QString p = GetSecretDir() + "allowed_sites.html"; 
+                                QFile f(p); 
+                                if(f.open(QIODevice::WriteOnly)){ 
+                                    QTextStream out(&f); 
+                                    out<<"<html><body style='text-align:center; font-family:sans-serif; margin-top:50px;'><h2>Focus Mode is Active!</h2><p>Allowed Sites:</p>"; 
+                                    for(auto x:allowedWebs) out<<"<a href='https://"<<x<<"' style='display:inline-block; margin:10px; padding:10px; background:#007bff; color:white; text-decoration:none; border-radius:5px;'>"<<x<<"</a><br>"; 
+                                    out<<"</body></html>"; 
+                                    f.close(); 
+                                } 
+                                QDesktopServices::openUrl(QUrl::fromLocalFile(p)); 
                             }
                         } else {
                             for(const QString& w : blockedWebs) { if(sTitle.contains(w.toLower())) { CloseActiveTabAndMinimize(hActive); ShowCustomOverlay(2); return; } }
@@ -704,7 +716,19 @@ private:
             
             if(isPomodoroMode) {
                 pomoTicks++; if(pomoTicks%5==0) SaveAllData();
-                if(!isPomodoroBreak && pomoTicks >= pomoLengthMin*60) { isPomodoroBreak=true; pomoTicks=0; QDesktopServices::openUrl(QUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")); /* Placeholder for break page */ }
+                if(!isPomodoroBreak && pomoTicks >= pomoLengthMin*60) { 
+                    isPomodoroBreak=true; pomoTicks=0; 
+                    
+                    // Generate & Open Pomodoro Break HTML
+                    QString p = GetSecretDir() + "pomodoro_break.html"; 
+                    QFile f(p); 
+                    if(f.open(QIODevice::WriteOnly)){ 
+                        QTextStream out(&f); 
+                        out<<"<html><body style='background:#1e3c72; color:white; text-align:center; padding-top:100px; font-family:sans-serif;'><h1>Time to Relax & Drink Water!</h1><p>Break Started.</p></body></html>"; 
+                        f.close(); 
+                    } 
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(p));
+                }
                 else if(isPomodoroBreak && pomoTicks >= 2*60) { isPomodoroBreak=false; pomoTicks=0; pomoCurrentSession++; if(pomoCurrentSession > pomoTotalSessions) { ClearSessionData(); QMessageBox::information(this, "Done", "Pomodoro Complete!"); } }
                 
                 int l = isPomodoroBreak ? (2*60)-pomoTicks : (pomoLengthMin*60)-pomoTicks; if(l<0) l=0;
@@ -740,16 +764,32 @@ private:
     }
 
     void syncLoop() { // 4000ms
-        // Fetch License & Commands via WinInet (Preserved exactly as requested)
         ValidateLicenseAndTrial(); 
+        SyncLiveTrackerToFirebase(); // <--- Added Live Tracker Missing Fix
         
         if (isTrialExpired) { lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 30px;"); }
-        else if (isLicenseValid) { lblLicense->setText(QString("PREMIUM: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: green; font-weight: bold; margin-left: 30px;"); }
+        else if (isLicenseValid) { 
+            lblLicense->setText(QString("PREMIUM: %1 DAYS LEFT").arg(trialDaysLeft)); 
+            lblLicense->setStyleSheet("color: green; font-weight: bold; margin-left: 30px;"); 
+            if(sidebar->count() > 5) sidebar->item(5)->setHidden(true); // Hide Upgrade if Premium
+        }
         else { lblLicense->setText(QString("TRIAL: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: orange; font-weight: bold; margin-left: 30px;"); }
         
         if(!safeAdminMsg.isEmpty()) lblAdminMsg->setText("Admin Notice: " + safeAdminMsg); else lblAdminMsg->setText("");
         
         if(!pendingAdminChatStr.isEmpty()) { chatLog->append("<b>Admin:</b> " + pendingAdminChatStr); pendingAdminChatStr = ""; }
+        
+        // Broadcast Popup Fix
+        if(!pendingBroadcastMsg.isEmpty() && pendingBroadcastMsg != "ACK") {
+            currentBroadcastMsg = pendingBroadcastMsg;
+            pendingBroadcastMsg = "";
+            QMessageBox::information(this, "Admin Broadcast", currentBroadcastMsg);
+            
+            // Send ACK
+            QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=broadcastMsg&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+            QString cmd = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ broadcastMsg = @{ stringValue = 'ACK' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+            SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = cmd.toStdString().c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+        }
         
         if(pendingAdminCmd == 1 && !isSessionActive) { pendingAdminCmd = 0; currentSessionPass = "12345"; isPassMode = true; isTimeMode = false; isPomodoroMode = false; isSessionActive = true; SaveAllData(); updateUIStates(); hide(); }
         else if(pendingAdminCmd == 2 && isSessionActive) { pendingAdminCmd = 0; ClearSessionData(); updateUIStates(); }
