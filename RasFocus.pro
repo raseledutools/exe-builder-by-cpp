@@ -1,19 +1,18 @@
 QT       += core gui widgets
-
 CONFIG   += c++17
 
-# উইন্ডোজের কনসোল হাইড করা
-win32 {
-    CONFIG -= console
-    # Windows এর সিস্টেম ফাংশন লিঙ্কার (খুবই জরুরি)
-    LIBS   += -luser32 -lshell32 -ladvapi32 -ldwmapi -lgdi32 -lOle32
-}
+# কনসোল (CMD) হাইড করার জন্য
+win32: CONFIG += release
+win32: QMAKE_LFLAGS += -mwindows
 
-# প্রোজেক্টের নাম
-TARGET   = "RasFocus+AdultBlocker"
+TARGET = RasFocus_Pro
 TEMPLATE = app
 
-SOURCES  += main.cpp
+SOURCES += main.cpp \
+           adblocker.cpp
 
-# আইকন ফাইল থাকলে আনকমেন্ট করো
-# RC_ICONS = icon.ico
+# যদি আইকনের জন্য app.rc ফাইল থাকে
+RC_FILE = app.rc
+
+# Windows API Libraries
+win32: LIBS += -lwininet -ldwmapi -lole32 -luuid
