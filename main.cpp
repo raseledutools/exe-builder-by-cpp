@@ -130,7 +130,7 @@ void ShowCustomOverlay(int type) {
         overlayWidget = new QWidget();
         overlayWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
         overlayWidget->setAttribute(Qt::WA_TranslucentBackground);
-        overlayWidget->resize(900, 400); // Increased Size
+        overlayWidget->resize(900, 400); 
         
         QVBoxLayout* l = new QVBoxLayout(overlayWidget);
         QWidget* bg = new QWidget(); bg->setObjectName("bg");
@@ -173,7 +173,7 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 }
 
 // -------------------------------
-// EYE CURE LOGIC (Fixed)
+// EYE CURE LOGIC 
 // -------------------------------
 void ApplyEyeFilters() {
     if(!dimFilterWidget) {
@@ -191,7 +191,6 @@ void ApplyEyeFilters() {
         warmFilterWidget->setGeometry(QGuiApplication::primaryScreen()->virtualGeometry());
     }
     
-    // Fixed Brightness Logic (100 = full bright/no dim, 10 = max dark)
     int dimAlpha = (100 - eyeBrightness) * 2.5; 
     if(dimAlpha < 0) dimAlpha = 0; if(dimAlpha > 240) dimAlpha = 240;
     if(dimAlpha > 0) { 
@@ -222,7 +221,7 @@ void SetupAutoStart() {
 }
 
 // ==========================================
-// FLOATING STOPWATCH (Custom Title Bar + Minimize to Tray)
+// FLOATING STOPWATCH
 // ==========================================
 class StopwatchWindow : public QWidget {
 private:
@@ -250,7 +249,6 @@ protected:
 public:
     QLabel *lblSw; QElapsedTimer timer; QTimer *updateTimer; bool isRunning = false; qint64 pausedTime = 0;
     StopwatchWindow() {
-        // Use Qt::Tool to prevent it from showing a separate icon in the taskbar
         setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint); 
         resize(450, 200);
         setStyleSheet("background-color: #0F172A; border-radius: 12px;");
@@ -258,7 +256,6 @@ public:
         QVBoxLayout* mainL = new QVBoxLayout(this);
         mainL->setContentsMargins(0,0,0,0);
         
-        // Custom Top Bar
         QWidget* topBar = new QWidget();
         topBar->setFixedHeight(40);
         topBar->setStyleSheet("background-color: #1E293B; border-top-left-radius: 12px; border-top-right-radius: 12px;");
@@ -275,7 +272,6 @@ public:
         barL->addWidget(btnMin);
         mainL->addWidget(topBar);
 
-        // Body
         QWidget* body = new QWidget();
         QVBoxLayout* l = new QVBoxLayout(body);
         l->setContentsMargins(20,20,20,20);
@@ -300,13 +296,13 @@ public:
         
         connect(btnStart, &QPushButton::clicked, [=](){ if(isRunning){isRunning=false; pausedTime+=timer.elapsed(); updateTimer->stop();} else{isRunning=true; timer.start(); updateTimer->start(30);} });
         connect(btnReset, &QPushButton::clicked, [=](){ isRunning=false; pausedTime=0; updateTimer->stop(); lblSw->setText("00:00:00.00"); });
-        connect(btnMin, &QPushButton::clicked, [=](){ this->hide(); }); // Hide to tray
+        connect(btnMin, &QPushButton::clicked, [=](){ this->hide(); });
     }
 };
 StopwatchWindow* swWindow = nullptr;
 
 // ==========================================
-// MAIN GUI CLASS (Premium Styled & Larger)
+// MAIN GUI CLASS
 // ==========================================
 class RasFocusApp : public QMainWindow {
 public:
@@ -320,8 +316,11 @@ public:
     QSlider *sliderBright, *sliderWarm; QTextEdit *chatLog; QLineEdit *chatIn;
     QLineEdit *upgEmail, *upgPhone, *upgTrx; QComboBox *upgPkg;
 
-    // Listen for IPC Wakeup
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override {
+#else
+    bool nativeEvent(const QByteArray &eventType, void *message, long *result) override {
+#endif
         MSG *msg = static_cast<MSG *>(message);
         if (msg->message == WM_USER + 2) {
             this->setWindowState((this->windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
@@ -334,13 +333,13 @@ public:
 
     RasFocusApp() {
         setWindowTitle("RasFocus Pro - Dashboard"); 
-        resize(1200, 800); // BIGGER WINDOW
+        resize(1200, 800); 
         setStyleSheet("QMainWindow { background-color: #F8FAFC; } QLabel { color: #1E293B; font-family: 'Segoe UI'; }");
         
         QWidget* central = new QWidget(); setCentralWidget(central);
         QHBoxLayout* mainLayout = new QHBoxLayout(central); mainLayout->setContentsMargins(0,0,0,0); mainLayout->setSpacing(0);
         
-        sidebar = new QListWidget(); sidebar->setFixedWidth(300); // BIGGER SIDEBAR
+        sidebar = new QListWidget(); sidebar->setFixedWidth(300); 
         sidebar->setStyleSheet(R"(
             QListWidget { background-color: #0F172A; color: #94A3B8; border: none; font-size: 18px; padding-top: 30px; outline: none; }
             QListWidget::item { padding: 25px 30px; border-left: 5px solid transparent; }
@@ -774,31 +773,29 @@ void RequestAdminRights() {
     char szPath[MAX_PATH];
     if (GetModuleFileNameA(NULL, szPath, ARRAYSIZE(szPath))) {
         SHELLEXECUTEINFOA sei = { sizeof(sei) };
-        sei.lpVerb = "runas"; // Requests elevation (UAC prompt)
+        sei.lpVerb = "runas"; 
         sei.lpFile = szPath;
         sei.nShow = SW_NORMAL;
         if (!ShellExecuteExA(&sei)) {
-            exit(1); // Exit if user declines UAC
+            exit(1); 
         }
     }
 }
 
 int main(int argc, char *argv[]) {
-    // Force Admin Rights First
     if (!IsRunAsAdmin()) {
         RequestAdminRights();
-        return 0; // End current non-admin process
+        return 0; 
     }
 
-    // WAKE-UP LOGIC: Prevent double launch and wake up existing app
     QSharedMemory sharedMem("RasFocusPro_SharedMem_V2");
     if (!sharedMem.create(1)) {
         HWND hExisting = FindWindowA(NULL, "RasFocus Pro - Dashboard");
         if (hExisting) {
-            PostMessageA(hExisting, WM_USER + 2, 0, 0); // Sends wakeup signal
+            PostMessageA(hExisting, WM_USER + 2, 0, 0); 
             SetForegroundWindow(hExisting);
         }
-        return 0; // Close duplicate
+        return 0; 
     }
     
     SetupAutoStart(); 
@@ -806,7 +803,7 @@ int main(int argc, char *argv[]) {
     
     QApplication app(argc, argv);
     QApplication::setQuitOnLastWindowClosed(false);
-    app.setFont(QFont("Segoe UI", 14)); // Global Font Size Increased
+    app.setFont(QFont("Segoe UI", 14)); 
     
     RasFocusApp window;
     
