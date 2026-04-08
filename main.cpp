@@ -189,16 +189,17 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 }
 
 void ApplyEyeFilters() {
+    // FIX: Added Qt::WindowTransparentForInput for eye care input pass-through
     if(!dimFilterWidget) {
         dimFilterWidget = new QWidget();
-        dimFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
+        dimFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint | Qt::WindowTransparentForInput);
         dimFilterWidget->setAttribute(Qt::WA_TranslucentBackground);
         dimFilterWidget->setAttribute(Qt::WA_TransparentForMouseEvents); 
         dimFilterWidget->setGeometry(QGuiApplication::primaryScreen()->virtualGeometry());
     }
     if(!warmFilterWidget) {
         warmFilterWidget = new QWidget();
-        warmFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
+        warmFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint | Qt::WindowTransparentForInput);
         warmFilterWidget->setAttribute(Qt::WA_TranslucentBackground);
         warmFilterWidget->setAttribute(Qt::WA_TransparentForMouseEvents); 
         warmFilterWidget->setGeometry(QGuiApplication::primaryScreen()->virtualGeometry());
@@ -327,10 +328,14 @@ public:
             QListWidget::item:hover { background-color: #F1F5F9; color: #0F172A; }
             QListWidget::item:selected { background-color: #EFF6FF; color: #2563EB; border-left: 5px solid #3B82F6; }
         )");
+        
+        // ADDED MISSING SIDEBAR SECTIONS (Schedule & Settings)
         sidebar->addItem("  📊 Overview");
         sidebar->addItem("  🛡️ Blocks & Allows");
+        sidebar->addItem("  📅 Schedule");         // NEW
         sidebar->addItem("  ⚙️ Advanced Features");
         sidebar->addItem("  ⏱️ Tools & Pomodoro");
+        sidebar->addItem("  ⚙️ Settings");          // NEW
         sidebar->addItem("  💬 Live Chat");
         sidebar->addItem("  ⭐ Premium Upgrade");
         
@@ -340,8 +345,10 @@ public:
         
         setupOverviewPage();
         setupListsPage();
+        setupSchedulePage(); // NEW
         setupAdvancedPage();
         setupToolsPage();
+        setupSettingsPage(); // NEW
         setupChatPage();
         setupUpgradePage();
         
@@ -477,6 +484,19 @@ private:
         stack->addWidget(page);
     }
 
+    // NEW PAGE: Schedule
+    void setupSchedulePage() {
+        QWidget* page = new QWidget();
+        QVBoxLayout* l = new QVBoxLayout(page);
+        l->setContentsMargins(40, 40, 40, 40);
+        QLabel* title = new QLabel("📅 Schedule (Coming Soon)");
+        title->setStyleSheet("font-size: 24px; font-weight: bold; color: #3B82F6;");
+        l->addWidget(title);
+        l->addWidget(new QLabel("Here you can plan your daily focus routines in the future updates."));
+        l->addStretch();
+        stack->addWidget(page);
+    }
+
     void setupAdvancedPage() {
         QWidget* page = new QWidget();
         QVBoxLayout* l = new QVBoxLayout(page);
@@ -583,6 +603,19 @@ private:
         stack->addWidget(page);
     }
 
+    // NEW PAGE: Settings
+    void setupSettingsPage() {
+        QWidget* page = new QWidget();
+        QVBoxLayout* l = new QVBoxLayout(page);
+        l->setContentsMargins(40, 40, 40, 40);
+        QLabel* title = new QLabel("⚙️ General Settings");
+        title->setStyleSheet("font-size: 24px; font-weight: bold; color: #64748B;");
+        l->addWidget(title);
+        l->addWidget(new QLabel("App preferences and startup configurations will be available here."));
+        l->addStretch();
+        stack->addWidget(page);
+    }
+
     void setupChatPage() {
         QWidget* page = new QWidget();
         QVBoxLayout* l = new QVBoxLayout(page);
@@ -673,7 +706,14 @@ private:
         QAction* res = new QAction("Restore Dashboard", this); connect(res, &QAction::triggered, this, &QWidget::showNormal); menu->addAction(res);
         QAction* ex = new QAction("Exit App", this); connect(ex, &QAction::triggered, qApp, &QCoreApplication::quit); menu->addAction(ex);
         trayIcon->setContextMenu(menu);
-        connect(trayIcon, &QSystemTrayIcon::activated, [=](QSystemTrayIcon::ActivationReason r){ if(r == QSystemTrayIcon::DoubleClick) { showNormal(); activateWindow(); } });
+        
+        // Double-click on Tray to open
+        connect(trayIcon, &QSystemTrayIcon::activated, [=](QSystemTrayIcon::ActivationReason r){ 
+            if(r == QSystemTrayIcon::DoubleClick) { 
+                showNormal(); 
+                activateWindow(); 
+            } 
+        });
         trayIcon->show();
     }
 
@@ -1032,14 +1072,14 @@ private:
             if(!isSessionActive) {
                 QMessageBox::critical(this, "Expired", "License Expired! Please upgrade from the premium tab to continue.", QMessageBox::Ok);
                 stack->setEnabled(true);
-                sidebar->setCurrentRow(5); // Auto jump to Upgrade page
+                sidebar->setCurrentRow(7); // Auto jump to Upgrade page (updated index to 7 due to new pages)
             }
         }
         else if (isLicenseValid) { 
             lblLicense->setText(QString("PREMIUM: %1 DAYS LEFT").arg(trialDaysLeft)); 
             lblLicense->setStyleSheet("color: green; font-weight: bold; margin-left: 30px;"); 
             stack->setEnabled(true);
-            if(sidebar->count() > 5) sidebar->item(5)->setHidden(true); // Hide Upgrade if Premium
+            if(sidebar->count() > 7) sidebar->item(7)->setHidden(true); // Hide Upgrade if Premium
         }
         else { 
             lblLicense->setText(QString("TRIAL: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: orange; font-weight: bold; margin-left: 30px;"); 
@@ -1075,8 +1115,10 @@ private:
         }
     }
 
+    // FIX: Always ignore Close event and Hide to Tray
     void closeEvent(QCloseEvent *event) override {
-        if(isSessionActive) { event->ignore(); hide(); } else { event->accept(); }
+        event->ignore(); // Stop the window from actually closing and destroying
+        hide();          // Hide it to the system tray
     }
 };
 
@@ -1093,7 +1135,7 @@ int main(int argc, char *argv[]) {
     hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
     
     QApplication app(argc, argv);
-    QApplication::setQuitOnLastWindowClosed(false);
+    QApplication::setQuitOnLastWindowClosed(false); // Prevents the app from exiting when window is hidden
     app.setFont(QFont("Segoe UI", 12)); // Increased global font
     
     RasFocusApp window;
