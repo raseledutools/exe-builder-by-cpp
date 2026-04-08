@@ -1,4 +1,4 @@
-name: RasFocus Windows Build
+name: RasFocus Windows Standalone Build
 
 on:
   push:
@@ -6,38 +6,39 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-static:
     runs-on: windows-latest
-
+    defaults:
+      run:
+        shell: msys2 {0}
+    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install Qt
-      uses: jurplel/install-qt-action@v3
+    # MSYS2 এর মাধ্যমে আগে থেকে কম্পাইল করা Static Qt নামানো হচ্ছে
+    - name: Setup MSYS2 and Static Qt5
+      uses: msys2/setup-msys2@v2
       with:
-        version: '5.15.2'
-        host: 'windows'
-        target: 'desktop'
-        arch: 'win64_msvc2019_64'
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-ninja
+          mingw-w64-x86_64-qt5-static
 
-    # এই স্টেপটি নতুন অ্যাড করা হয়েছে (MSVC কম্পাইলার রেডি করার জন্য)
-    - name: Setup MSVC Developer Command Prompt
-      uses: ilammy/msvc-dev-cmd@v1
-
-    - name: Build RasFocus
+    # CMake দিয়ে প্রোজেক্ট বিল্ড করা হচ্ছে (qmake এর বদলে)
+    - name: Build RasFocus Standalone
       run: |
-        qmake RasFocus.pro
-        nmake release
+        mkdir build
+        cd build
+        cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+        cmake --build .
 
-    - name: Package Dependencies (windeployqt)
-      run: |
-        mkdir dist
-        copy release\RasFocus+AdultBlocker.exe dist\
-        windeployqt dist\RasFocus+AdultBlocker.exe
-
-    - name: Upload Finished Project
+    # শুধুমাত্র বিল্ড হওয়া একটিমাত্র .exe ফাইল আপলোড করা হচ্ছে (কোনো DLL ছাড়া)
+    - name: Upload Single EXE
       uses: actions/upload-artifact@v4
       with:
-        name: RasFocus-Release-Pack
-        path: dist/
+        name: RasFocus-Standalone-Pack
+        path: build/RasFocus_Pro.exe
