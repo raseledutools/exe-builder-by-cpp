@@ -269,7 +269,7 @@ protected:
         QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
         int w = 48, h = 24; QRect rect(0, (height()-h)/2, w, h);
         QPainterPath path; path.addRoundedRect(rect, h/2, h/2);
-        p.fillPath(path, isChecked() ? QColor("#15AABF") : QColor("#CBD5E1"));
+        p.fillPath(path, isChecked() ? QColor("#15AABF") : QColor("#CBD5E1")); // CareUEyes Teal Color
         p.setBrush(QColor("#FFFFFF")); p.setPen(Qt::NoPen);
         int handleSize = 18;
         if(isChecked()) p.drawEllipse(w - handleSize - 3, rect.y() + 3, handleSize, handleSize);
@@ -561,10 +561,7 @@ private:
 
     void setupAdvancedPage() {
         QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(40, 40, 40, 40);
-        QLabel* title = new QLabel("Advanced MagicX Features"); title->setStyleSheet("font-size: 26px; font-weight: bold; margin-bottom: 5px; color: #0F172A;"); l->addWidget(title);
-        
-        QLabel* sub = new QLabel("Enable these strict settings to prevent distractions completely.");
-        sub->setStyleSheet("color: #64748B; margin-bottom: 25px; font-size: 15px;"); l->addWidget(sub);
+        QLabel* title = new QLabel("Advanced MagicX Features"); title->setStyleSheet("font-size: 26px; font-weight: bold; margin-bottom: 20px;"); l->addWidget(title);
         
         QFrame* advCard = createCard(); QVBoxLayout* advLayout = new QVBoxLayout(advCard); advLayout->setContentsMargins(40, 40, 40, 40); advLayout->setSpacing(25);
         
@@ -706,7 +703,7 @@ private:
 
     void ClearSessionData() {
         isSessionActive = isTimeMode = isPassMode = isPomodoroMode = isPomodoroBreak = false; currentSessionPass = ""; focusTimeTotalSeconds = timerTicks = pomoTicks = 0; pomoCurrentSession = 1;
-        dashProgress->updateProgress(0, "Ready"); lblPomoTime->setText("00:00:00"); lblStatus->setText(""); lblPomoStatus->setText("Status: Ready"); SaveAllData(); updateUIStates();
+        dashProgress->updateProgress(0, "Ready"); lblPomoTime->setText("00:00:00"); lblStatus->setText(""); lblPomoStatus->setText("Ready"); SaveAllData(); updateUIStates();
     }
 
     void updateUIStates() {
@@ -862,7 +859,7 @@ int main(int argc, char *argv[]) {
     HANDLE hMutex = CreateMutexA(NULL, TRUE, MUTEX_NAME.toStdString().c_str());
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND hExisting = FindWindowW(NULL, L"Pro Stopwatch"); // Just a dummy check
-        hExisting = FindWindowW(NULL, L"RasFocus Pro - Dashboard"); // The actual title
+        hExisting = FindWindowW(NULL, L"RasFocus Pro - Dashboard");
         if (hExisting) { 
             ShowWindow(hExisting, SW_RESTORE); 
             SetForegroundWindow(hExisting); 
