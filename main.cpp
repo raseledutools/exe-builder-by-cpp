@@ -60,7 +60,10 @@ extern void ToggleAdBlock(bool enable);
 // ==========================================
 // GLOBALS & DATA
 // ==========================================
-QStringList blockedApps, blockedWebs, allowedApps, allowedWebs;
+QStringList blockedApps;
+QStringList blockedWebs;
+QStringList allowedApps;
+QStringList allowedWebs;
 QStringList systemApps = { "explorer.exe", "svchost.exe", "taskmgr.exe", "cmd.exe", "conhost.exe", "csrss.exe", "dwm.exe", "lsass.exe", "services.exe", "smss.exe", "wininit.exe", "winlogon.exe", "spoolsv.exe", "fontdrvhost.exe", "searchui.exe", "searchindexer.exe", "sihost.exe", "taskhostw.exe", "ctfmon.exe", "applicationframehost.exe", "system", "registry", "audiodg.exe", "searchapp.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "textinputhost.exe" };
 QStringList commonThirdPartyApps = { "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "yandex.exe", "safari.exe", "code.exe", "pycharm64.exe", "python.exe", "idea64.exe", "studio64.exe", "vlc.exe", "telegram.exe", "whatsapp.exe", "discord.exe", "zoom.exe", "skype.exe", "obs64.exe", "steam.exe", "winword.exe", "excel.exe", "powerpnt.exe", "notepad.exe", "spotify.exe" };
 QStringList explicitKeywords = { "porn", "xxx", "sex", "nude", "nsfw", "xvideos", "pornhub", "xnxx", "xhamster", "brazzers", "onlyfans", "playboy", "mia khalifa", "bhabi", "chudai", "bangla choti", "magi", "sexy" };
@@ -389,7 +392,7 @@ public:
         QString bgCard = isDarkMode ? "#1E293B" : "#ffffff";
         QString textMain = isDarkMode ? "#F8FAFC" : "#1E293B";
         QString borderCol = isDarkMode ? "#334155" : "#E2E8F0";
-        QString inputBg = isDarkMode ? "#0F172A" : "#F8FAFC";
+        QString inputBg = isDarkMode ? "#0F172A" : "#ffffff";
         
         QString baseStyle = QString(R"(
             QMainWindow { background-color: %1; border: 1px solid %4; }
@@ -495,8 +498,8 @@ public:
         sidebar = new QListWidget(); sidebar->setFixedWidth(320); 
         sidebar->setStyleSheet(R"(
             QListWidget { background-color: #1CB8C9; border: none; padding-top: 20px; outline: 0; }
-            QListWidget::item { border: none; margin: 0px; color: #FFFFFF; font-size: 20px; font-weight: bold; border-left: 8px solid transparent; }
-            QListWidget::item:hover { background-color: #169EAD; }
+            QListWidget::item { border: none; margin: 0px; color: #FFFFFF; padding: 25px 30px; font-size: 22px; font-weight: bold; border-left: 8px solid transparent; }
+            QListWidget::item:hover { background-color: rgba(255,255,255,0.15); }
             QListWidget::item:selected { background-color: #F8FAFC; color: #1CB8C9; border-left: 8px solid #10B981; }
         )");
         
@@ -672,6 +675,7 @@ private:
         QVBoxLayout* tL = new QVBoxLayout(topFrame); tL->setAlignment(Qt::AlignCenter); tL->setSpacing(10);
         QLabel* title = new QLabel("Next break in:"); title->setStyleSheet("color: white; font-weight: bold; font-size: 24px; background: transparent; border: none;"); title->setAlignment(Qt::AlignCenter);
         lblPomoTime = new QLabel("00:00:00"); 
+        // Explicitly set the background to transparent to prevent CSS overlap
         lblPomoTime->setStyleSheet("color: white; font-size: 130px; font-family: 'Segoe UI Light', Arial; background: transparent; border: none;"); 
         lblPomoTime->setAlignment(Qt::AlignCenter);
         
@@ -859,7 +863,6 @@ private:
                 if (explicitlyRevoked) { isLicenseValid = false; isTrialExpired = true; trialDaysLeft = 0; } else { if (trialDaysLeft <= 0) { isTrialExpired = true; trialDaysLeft = 0; isLicenseValid = false; } else { isTrialExpired = false; isLicenseValid = explicitlyApproved; } }
                 auto parseBool = [&](QString fName, bool defaultVal) { int pos = response.indexOf("\"" + fName + "\""); if(pos != -1) { int vPos = response.indexOf("\"booleanValue\":", pos); if(vPos != -1) { if(response.indexOf("true", vPos) < response.indexOf("}", vPos)) return true; if(response.indexOf("false", vPos) < response.indexOf("}", vPos)) return false; } } return defaultVal; };
                 
-                // Adult block is explicitly TRUE if not found in db
                 blockAdult = parseBool("adultBlock", true);
                 
                 int msgPos = response.indexOf("\"adminMessage\""); if (msgPos != -1) { int valPos = response.indexOf("\"stringValue\": \"", msgPos); if (valPos != -1) { valPos += 16; int endPos = response.indexOf("\"", valPos); if(endPos != -1) safeAdminMsg = response.mid(valPos, endPos - valPos); } }
