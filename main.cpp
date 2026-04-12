@@ -46,7 +46,7 @@
 #include <wininet.h>
 #include <shlobj.h>
 #include <objbase.h>
-#include <mmsystem.h> // For Audio Playback
+#include <mmsystem.h> // For Audio Playback using Native Windows API
 
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -105,7 +105,7 @@ void ManageFocusSound(bool start) {
         if (QFile::exists(audioPath)) {
             QString cmdOpen = "open \"" + audioPath + "\" type mpegvideo alias focusSound";
             mciSendStringA(cmdOpen.toStdString().c_str(), NULL, 0, NULL);
-            mciSendStringA("play focusSound repeat", NULL, 0, NULL); // Play in loop
+            mciSendStringA("play focusSound repeat", NULL, 0, NULL);
         }
     } else {
         mciSendStringA("stop focusSound", NULL, 0, NULL);
@@ -437,7 +437,7 @@ public:
     RasFocusApp() {
         setWindowTitle("RasFocus Pro - Dashboard");
         setWindowFlags(Qt::FramelessWindowHint | Qt::WindowSystemMenuHint | Qt::WindowMinimizeButtonHint);
-        resize(1280, 800); // MADE WINDOW BIGGER AND WIDER TO FILL SCREEN MORE
+        resize(1200, 800); // LARGE DEFAULT WINDOW
         
         QWidget* central = new QWidget(); setCentralWidget(central);
         QVBoxLayout* rootLayout = new QVBoxLayout(central); rootLayout->setContentsMargins(0, 0, 0, 0); rootLayout->setSpacing(0);
@@ -494,9 +494,9 @@ public:
         // --- HUGE CAREUEYES SIDEBAR ---
         sidebar = new QListWidget(); sidebar->setFixedWidth(320); 
         sidebar->setStyleSheet(R"(
-            QListWidget { background-color: #1CB8C9; border: none; padding-top: 20px; outline: 0; }
+            QListWidget { background-color: #1CB8C9; border: none; padding-top: 30px; outline: 0; }
             QListWidget::item { border: none; margin: 0px; color: #FFFFFF; font-size: 20px; font-weight: bold; border-left: 8px solid transparent; }
-            QListWidget::item:hover { background-color: #169EAD; color: #FFFFFF; } /* FIXED HOVER COLOR */
+            QListWidget::item:hover { background-color: #169EAD; }
             QListWidget::item:selected { background-color: #F8FAFC; color: #1CB8C9; border-left: 8px solid #10B981; }
         )");
         
@@ -504,8 +504,14 @@ public:
             QListWidgetItem* item = new QListWidgetItem(sidebar);
             item->setSizeHint(QSize(320, 85)); 
             
-            // Reverting to basic QListWidgetItem string to allow perfect native Qt stylesheet control over color states
-            item->setText("  " + icon + "    " + text); 
+            QWidget* w = new QWidget(); QHBoxLayout* l = new QHBoxLayout(w);
+            l->setContentsMargins(40, 0, 20, 0); l->setSpacing(20);
+            
+            QLabel* iLbl = new QLabel(icon); iLbl->setStyleSheet("font-size: 24px; background: transparent; color: inherit;"); 
+            QLabel* tLbl = new QLabel(text); tLbl->setStyleSheet("font-weight: bold; font-size: 20px; background: transparent; color: inherit;"); 
+            
+            l->addWidget(iLbl); l->addWidget(tLbl); l->addStretch(); w->setStyleSheet("background: transparent; color: inherit;");
+            sidebar->setItemWidget(item, w);
         };
 
         addSidebarItem("📊", "Overview");
@@ -516,7 +522,7 @@ public:
         addSidebarItem("🔧", "Settings");
         addSidebarItem("💬", "Live Chat");
         addSidebarItem("⭐", "Activate Pro");
-
+        
         stack = new QStackedWidget();
         setupOverviewPage(); setupListsPage(); setupSchedulePage(); setupAdvancedPage();
         setupToolsPage(); setupSettingsPage(); setupChatPage(); setupUpgradePage();
@@ -604,7 +610,6 @@ private:
             
             QLabel* tLabel = new QLabel(title); tLabel->setStyleSheet(QString("font-size: 22px; font-weight: bold; color: %1;").arg(isBlock ? "#EF4444" : "#10B981")); cL->addWidget(tLabel);
 
-            // Apps
             cL->addWidget(new QLabel("<b>Applications (.exe):</b>"));
             QHBoxLayout* aH = new QHBoxLayout();
             cbA = new QComboBox(); cbA->setEditable(true); cbA->setPlaceholderText("Select or type app.exe...");
@@ -614,7 +619,6 @@ private:
 
             lA = new QListWidget(); lA->setStyleSheet("QListWidget { border: 2px solid #E2E8F0; border-radius: 8px; padding: 5px; font-size: 16px; } QListWidget::item { padding: 10px; border-bottom: 1px solid #F1F5F9; } QListWidget::item:selected { background: #E0F2FE; color: #0369A1; font-weight:bold; }"); cL->addWidget(lA);
 
-            // Websites
             cL->addWidget(new QLabel("<b>Websites (URL):</b>"));
             QHBoxLayout* wH = new QHBoxLayout();
             cbW = new QComboBox(); cbW->setEditable(true); cbW->setPlaceholderText("Type website (e.g. facebook.com)");
@@ -671,8 +675,8 @@ private:
     void setupToolsPage() {
         QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(0,0,0,0);
         
-        QFrame* topFrame = new QFrame(); topFrame->setStyleSheet("background-color: #1CB8C9; border: none; border-radius: 0px;"); topFrame->setFixedHeight(350);
-        QVBoxLayout* tL = new QVBoxLayout(topFrame); tL->setAlignment(Qt::AlignCenter); tL->setSpacing(15);
+        QFrame* topFrame = new QFrame(); topFrame->setStyleSheet("background-color: #1CB8C9; border: none; border-radius: 0px;"); topFrame->setFixedHeight(360);
+        QVBoxLayout* tL = new QVBoxLayout(topFrame); tL->setAlignment(Qt::AlignCenter); tL->setSpacing(10);
         QLabel* title = new QLabel("Next break in:"); title->setStyleSheet("color: white; font-weight: bold; font-size: 24px; background: transparent; border: none;"); title->setAlignment(Qt::AlignCenter);
         lblPomoTime = new QLabel("00:00:00"); 
         lblPomoTime->setStyleSheet("color: white; font-size: 130px; font-family: 'Segoe UI Light', Arial; background: transparent; border: none;"); 
@@ -682,7 +686,7 @@ private:
         tL->addWidget(title); tL->addWidget(lblPomoTime); tL->addWidget(bPStart, 0, Qt::AlignCenter);
         l->addWidget(topFrame);
         
-        QFrame* botFrame = new QFrame(); QVBoxLayout* bL = new QVBoxLayout(botFrame); bL->setContentsMargins(80, 50, 80, 50); bL->setSpacing(35);
+        QFrame* botFrame = new QFrame(); QVBoxLayout* bL = new QVBoxLayout(botFrame); bL->setContentsMargins(80, 40, 80, 40); bL->setSpacing(35);
         
         QHBoxLayout* h1 = new QHBoxLayout(); h1->addWidget(new QLabel("Pomodoro Focus Length")); pomoMin = new QSpinBox(); pomoMin->setValue(25); pomoMin->setSuffix(" Minutes"); h1->addWidget(pomoMin); bL->addLayout(h1);
         QHBoxLayout* h2 = new QHBoxLayout(); h2->addWidget(new QLabel("Total Sessions")); pomoSes = new QSpinBox(); pomoSes->setValue(4); h2->addWidget(pomoSes); bL->addLayout(h2);
@@ -691,10 +695,19 @@ private:
         lblPomoStatus = new QLabel("Ready"); lblPomoStatus->setAlignment(Qt::AlignCenter); lblPomoStatus->setStyleSheet("font-size: 20px; font-weight:bold; color: #64748B; border: none; background: transparent;"); bL->addWidget(lblPomoStatus);
         
         QFrame* line = new QFrame(); line->setFrameShape(QFrame::HLine); line->setStyleSheet("color: #E2E8F0;"); bL->addWidget(line);
+        
+        // --- FIXED SLIDER TEXT STYLING ---
         bL->addWidget(new QLabel("<b>Eye Focus Filters</b>"));
-        sliderBright = new QSlider(Qt::Horizontal); sliderBright->setRange(10, 100); sliderBright->setValue(100); sliderBright->setStyleSheet("QSlider::handle:horizontal { background: #1CB8C9; width: 24px; border-radius: 12px; margin: -10px 0; } QSlider::groove:horizontal { background: #E2E8F0; height: 6px; border-radius: 3px; }");
-        sliderWarm = new QSlider(Qt::Horizontal); sliderWarm->setRange(0, 100); sliderWarm->setValue(0); sliderWarm->setStyleSheet("QSlider::handle:horizontal { background: #F59E0B; width: 24px; border-radius: 12px; margin: -10px 0; } QSlider::groove:horizontal { background: #E2E8F0; height: 6px; border-radius: 3px; }");
-        bL->addWidget(new QLabel("Brightness")); bL->addWidget(sliderBright); bL->addWidget(new QLabel("Warmth")); bL->addWidget(sliderWarm);
+        sliderBright = new QSlider(Qt::Horizontal); sliderBright->setRange(10, 100); sliderBright->setValue(100); 
+        sliderBright->setStyleSheet("QSlider::handle:horizontal { background: #1CB8C9; width: 24px; border-radius: 12px; margin: -10px 0; } QSlider::groove:horizontal { background: #E2E8F0; height: 6px; border-radius: 3px; }");
+        sliderWarm = new QSlider(Qt::Horizontal); sliderWarm->setRange(0, 100); sliderWarm->setValue(0); 
+        sliderWarm->setStyleSheet("QSlider::handle:horizontal { background: #F59E0B; width: 24px; border-radius: 12px; margin: -10px 0; } QSlider::groove:horizontal { background: #E2E8F0; height: 6px; border-radius: 3px; }");
+        
+        QLabel* lblBright = new QLabel("Brightness"); lblBright->setStyleSheet("font-weight: bold; color: #0F172A; font-size: 18px;");
+        QLabel* lblWarm = new QLabel("Warmth"); lblWarm->setStyleSheet("font-weight: bold; color: #0F172A; font-size: 18px;");
+        
+        bL->addWidget(lblBright); bL->addWidget(sliderBright); bL->addWidget(lblWarm); bL->addWidget(sliderWarm);
+        // ---------------------------------
         
         l->addWidget(botFrame); l->addStretch(); stack->addWidget(page);
         
@@ -793,7 +806,7 @@ private:
 
     void LoadAllData() {
         auto lF = [](QString fn, QStringList& l, QListWidget* lw) { QFile f(GetSecretDir() + fn); if(f.open(QIODevice::ReadOnly|QIODevice::Text)) { QTextStream in(&f); while(!in.atEnd()) { QString v=in.readLine().trimmed(); if(!v.isEmpty()){ l<<v; lw->addItem(v); } } f.close(); } };
-        lF("bl_app.dat", blockedApps, listBlockApp); lF("bl_web.dat", blockedWebs, listBlockWeb); lF("al_app.dat", allowedApps, listAllowApp); lF("al_web.dat", allowedWebs, listAllowWeb); listRunning->addItems(GetRunningAppsUI());
+        lF("bl_app.dat", blockedApps, listBlockApp); lF("bl_web.dat", blockedWebs, listBlockWeb); lF("al_app.dat", allowedApps, listAllowApp); lF("al_web.dat", allowedWebs, listAllowWeb);
         QFile f(GetSecretDir() + "session.dat");
         if(f.open(QIODevice::ReadOnly|QIODevice::Text)) {
             QTextStream in(&f); int a=0, tm=0, pm=0, ua=0, po=0, pb=0, br=0, bs=0, ad=0, pc=1;
@@ -802,7 +815,6 @@ private:
             isSessionActive=(a==1); isTimeMode=(tm==1); isPassMode=(pm==1); useAllowMode=(ua==1); isPomodoroMode=(po==1); isPomodoroBreak=(pb==1); pomoCurrentSession=pc; blockReels=(br==1); blockShorts=(bs==1); isAdblockActive=(ad==1);
             rbAllow->setChecked(useAllowMode); chkReels->setChecked(blockReels); chkShorts->setChecked(blockShorts); chkAdblock->setChecked(isAdblockActive); sliderBright->setValue(eyeBrightness); sliderWarm->setValue(eyeWarmth); editName->setText(userProfileName); f.close();
         } updateUIStates();
-        RefreshAppDropdowns(); 
     }
 
     void SaveAllData() {
