@@ -40,6 +40,7 @@
 #include <QGraphicsOpacityEffect>
 #include <QGraphicsDropShadowEffect>
 #include <QSizeGrip>
+#include <QSharedMemory> // Added for Single Instance
 
 // Windows API
 #include <windows.h>
@@ -64,7 +65,7 @@ QStringList explicitKeywords = { "porn", "xxx", "sex", "nude", "nsfw", "xvideos"
 QStringList safeBrowserTitles = { "new tab", "start", "blank page", "allowed websites", "loading", "untitled", "connecting", "pomodoro break" };
 
 QStringList islamicQuotes = { "\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং তাদের যৌনাঙ্গর হেফাযত করে।\" - (সূরা আন-নূর: ৩০)", "\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে না।\" - (সহীহ বুখারী)" };
-QStringList timeQuotes = { "\"যারা সময়কে মূল্যায়ন করে না, সময়ও তাদেরকে মূল্যায়ন করে না।\" - এ.পি.জে. আবদুল কালাম" };
+QStringList timeQuotes = { "\"যারা সময়কে মূল্যায়ন করে না, সময়ও তাদেরকে মূল্যায়ন করে্বা না।\" - এ.পি.জে. আবদুল কালাম" };
 
 bool isSessionActive = false, isTimeMode = false, isPassMode = false, useAllowMode = false, isOverlayVisible = false;
 bool blockReels = false, blockShorts = false, isAdblockActive = false, blockAdult = false, isDarkMode = false;
@@ -93,29 +94,6 @@ DWORD lastUsageUpdate = 0;
 // ==========================================
 // UTILITY FUNCTIONS
 // ==========================================
-bool IsRunAsAdmin() {
-    BOOL fIsRunAsAdmin = FALSE;
-    PSID pAdministratorsGroup = NULL;
-    SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
-    if (AllocateAndInitializeSid(&NtAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &pAdministratorsGroup)) {
-        CheckTokenMembership(NULL, pAdministratorsGroup, &fIsRunAsAdmin);
-        FreeSid(pAdministratorsGroup);
-    }
-    return fIsRunAsAdmin;
-}
-
-void RequestAdminAndRestart(QString args) {
-    char path[MAX_PATH];
-    GetModuleFileNameA(NULL, path, MAX_PATH);
-    SHELLEXECUTEINFOA sei = { sizeof(sei) };
-    sei.lpVerb = "runas";
-    sei.lpFile = path;
-    sei.lpParameters = args.toStdString().c_str();
-    sei.hwnd = NULL;
-    sei.nShow = SW_NORMAL;
-    if (!ShellExecuteExA(&sei)) { exit(0); }
-    exit(0);
-}
 
 void runPowerShell(QString cmdBody) {
     QProcess::startDetached("powershell.exe", QStringList() << "-WindowStyle" << "Hidden" << "-Command" << cmdBody);
@@ -128,7 +106,7 @@ QString GetDeviceID() {
 }
 
 QString GetSecretDir() {
-    QString dir = "C:/ProgramData/SysCache_Ras";
+    QString dir = QDir::homePath() + "/AppData/Local/RasFocusPro"; // Using AppData instead of ProgramData to avoid admin requirement
     QDir().mkpath(dir);
     SetFileAttributesA(dir.toStdString().c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
     return dir + "/";
@@ -247,15 +225,12 @@ void SetupAutoStart() {
     char p[MAX_PATH]; GetModuleFileNameA(NULL, p, MAX_PATH);
     QString pathWithArg = "\"" + QString(p) + "\" -autostart";
     HKEY hKey;
+    // Uses HKEY_CURRENT_USER so no admin permission is required.
     if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
         RegSetValueExA(hKey, "RasFocusPro", 0, REG_SZ, (const BYTE*)pathWithArg.toStdString().c_str(), pathWithArg.length() + 1);
         RegCloseKey(hKey);
     }
 }
-
-// ==========================================
-// CUSTOM UI CLASSES (Buttons, Progress, Toasts)
-// ==========================================
 
 // Hover Animated Button
 class SmoothButton : public QPushButton {
@@ -266,7 +241,7 @@ protected:
         QGraphicsOpacityEffect* eff = new QGraphicsOpacityEffect(this);
         this->setGraphicsEffect(eff);
         QPropertyAnimation* a = new QPropertyAnimation(eff, "opacity");
-        a->setDuration(150); a->setStartValue(1.0); a->setEndValue(0.8);
+        a->setDuration(150); a->setStartValue(1.0); a->setEndValue(0.85);
         a->start(QPropertyAnimation::DeleteWhenStopped);
         QPushButton::enterEvent(event);
     }
@@ -274,12 +249,11 @@ protected:
         QGraphicsOpacityEffect* eff = new QGraphicsOpacityEffect(this);
         this->setGraphicsEffect(eff);
         QPropertyAnimation* a = new QPropertyAnimation(eff, "opacity");
-        a->setDuration(150); a->setStartValue(0.8); a->setEndValue(1.0);
+        a->setDuration(150); a->setStartValue(0.85); a->setEndValue(1.0);
         a->start(QPropertyAnimation::DeleteWhenStopped);
         QPushButton::leaveEvent(event);
     }
 };
-
 
 class ToastNotification : public QWidget {
 public:
@@ -295,22 +269,6 @@ public:
         QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(this); this->setGraphicsEffect(eff);
         QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity"); a->setDuration(300); a->setStartValue(0); a->setEndValue(1); a->start(QPropertyAnimation::DeleteWhenStopped);
         QTimer::singleShot(2500, this, [=]() { QPropertyAnimation *a2 = new QPropertyAnimation(eff, "opacity"); a2->setDuration(300); a2->setStartValue(1); a2->setEndValue(0); connect(a2, &QPropertyAnimation::finished, this, &QWidget::deleteLater); a2->start(QPropertyAnimation::DeleteWhenStopped); });
-    }
-};
-
-class CircularProgress : public QWidget {
-public:
-    int progress = 0; QString centerText = "Ready";
-    CircularProgress(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(200, 200); }
-    void updateProgress(int p, QString text) { progress = p; centerText = text; update(); }
-protected:
-    void paintEvent(QPaintEvent *) override {
-        QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
-        int size = qMin(width(), height()); QRect rect(10, 10, size - 20, size - 20);
-        QPen bgPen(QColor("#E2E8F0"), 12); p.setPen(bgPen); p.drawArc(rect, 0, 360 * 16);
-        QPen progPen(QColor("#3B82F6"), 12); progPen.setCapStyle(Qt::RoundCap); p.setPen(progPen);
-        int spanAngle = -(progress * 360 * 16) / 100; p.drawArc(rect, 90 * 16, spanAngle);
-        p.setPen(QColor(isDarkMode ? "#F8FAFC" : "#0F172A")); p.setFont(QFont("Segoe UI", 16, QFont::Bold)); p.drawText(rect, Qt::AlignCenter, centerText);
     }
 };
 
@@ -354,7 +312,7 @@ StopwatchWindow* swWindow = nullptr;
 class RasFocusApp : public QMainWindow {
 public:
     QStackedWidget* stack; QListWidget* sidebar; QTimer *fastTimer, *slowTimer, *syncTimer; QSystemTrayIcon* trayIcon;
-    QLineEdit *editName, *editPass; QSpinBox *spinHr, *spinMin; SmoothButton *btnStart, *btnStop; QLabel *lblStatus, *lblLicense, *lblAdminMsg; CircularProgress *dashProgress;
+    QLineEdit *editName, *editPass; QSpinBox *spinHr, *spinMin; SmoothButton *btnStart, *btnStop; QLabel *lblStatus, *lblLicense, *lblAdminMsg; 
     QRadioButton *rbBlock, *rbAllow; QListWidget *listBlockApp, *listBlockWeb, *listAllowApp, *listAllowWeb, *listRunning; QLineEdit *inBlockApp, *inAllowApp; QComboBox *inBlockWeb, *inAllowWeb;
     QCheckBox *chkReels, *chkShorts, *chkAdblock; QSpinBox *pomoMin, *pomoSes; SmoothButton *bPStart, *bPStop; QLabel *lblPomoStatus; QSlider *sliderBright, *sliderWarm;
     QTextEdit *chatLog; QLineEdit *chatIn; QLineEdit *upgEmail, *upgPhone, *upgTrx; QComboBox *upgPkg;
@@ -362,20 +320,14 @@ public:
 
     QFrame* createCard() {
         QFrame* card = new QFrame();
-        // Premium Card styling with Soft Drop Shadow simulation (via border/bg) and actual QGraphicsDropShadowEffect
         card->setStyleSheet(isDarkMode ? 
             "QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; }" : 
             "QFrame { background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; }"
         );
-        
-        // Add Soft Drop Shadow
         QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect(this);
-        shadow->setBlurRadius(15);
-        shadow->setXOffset(0);
-        shadow->setYOffset(4);
+        shadow->setBlurRadius(15); shadow->setXOffset(0); shadow->setYOffset(4);
         shadow->setColor(isDarkMode ? QColor(0, 0, 0, 100) : QColor(0, 0, 0, 20));
         card->setGraphicsEffect(shadow);
-        
         return card;
     }
 
@@ -386,8 +338,13 @@ public:
         QString textBold = isDarkMode ? "#38BDF8" : "#0F172A";
         QString borderCol = isDarkMode ? "#334155" : "#E2E8F0";
         QString inputBg = isDarkMode ? "#0F172A" : "#F1F5F9";
-        QString sidebarHover = isDarkMode ? "#1E293B" : "#F1F5F9";
-        QString sidebarSel = isDarkMode ? "#334155" : "#E0F2FE";
+        
+        // Sidebar styling based on image_574c8f.png
+        QString sidebarBg = "#0e9ebe"; // Teal color from CareUEyes
+        QString sidebarText = "#FFFFFF"; 
+        QString sidebarHover = "#0b88a4";
+        QString sidebarSel = "#ffffff";
+        QString sidebarSelText = "#0e9ebe";
         
         QString baseStyle = QString(R"(
             QMainWindow { background-color: %1; }
@@ -399,25 +356,23 @@ public:
             }
             QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 2px solid #3B82F6; background: %2; }
             QLineEdit:disabled, QSpinBox:disabled { background: %5; color: #94A3B8; }
-            QPushButton { font-family: 'Segoe UI'; font-size: 14px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; }
+            
+            /* GLOBAL BUTTON HOVER FIX */
+            QPushButton { font-family: 'Segoe UI'; font-size: 14px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; color: white; background: #3B82F6;}
+            QPushButton:hover { background: #2563EB; color: white; }
             QPushButton:disabled { background: #CBD5E1; color: #64748B; }
             
-            QListWidget#sidebar { background-color: %2; color: #64748B; border-right: 1px solid %5; padding: 20px 10px; font-size: 15px; font-weight: bold; font-family: 'Segoe UI'; outline: none; }
-            QListWidget#sidebar::item { height: 45px; padding-left: 15px; border-radius: 8px; margin-bottom: 5px; }
-            QListWidget#sidebar::item:hover { background-color: %7; color: #0F172A; }
-            QListWidget#sidebar::item:selected { background-color: %8; color: #0284C7; font-weight: 800; }
+            /* SIDEBAR STYLING UPDATE */
+            QListWidget#sidebar { background-color: %7; color: %8; border: none; padding: 20px 0px; font-size: 16px; font-weight: bold; font-family: 'Segoe UI'; outline: none; }
+            QListWidget#sidebar::item { height: 50px; padding-left: 20px; margin-bottom: 5px; border-radius: 0px; }
+            QListWidget#sidebar::item:hover { background-color: %9; color: %8; }
+            QListWidget#sidebar::item:selected { background-color: %10; color: %11; font-weight: 800; border-left: 4px solid #3B82F6; }
             
             QScrollBar:vertical { border: none; background: transparent; width: 8px; margin: 0px; }
             QScrollBar::handle:vertical { background: #CBD5E1; min-height: 20px; border-radius: 4px; }
             QScrollBar::handle:vertical:hover { background: #94A3B8; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-            
-            /* Custom Tooltip */
-            QToolTip { 
-                background-color: #1E293B; color: #F8FAFC; border: 1px solid #334155; 
-                border-radius: 6px; padding: 5px; font-family: 'Segoe UI'; font-size: 13px; 
-            }
-        )").arg(bgMain).arg(bgCard).arg(textMain).arg(textBold).arg(borderCol).arg(inputBg).arg(sidebarHover).arg(sidebarSel);
+        )").arg(bgMain).arg(bgCard).arg(textMain).arg(textBold).arg(borderCol).arg(inputBg).arg(sidebarBg).arg(sidebarText).arg(sidebarHover).arg(sidebarSel).arg(sidebarSelText);
         
         setStyleSheet(baseStyle);
         stack->setStyleSheet(QString("QStackedWidget { background-color: %1; }").arg(bgMain));
@@ -425,47 +380,47 @@ public:
 
     RasFocusApp() {
         setWindowFlags(Qt::FramelessWindowHint | Qt::WindowSystemMenuHint | Qt::WindowMinimizeButtonHint);
-        resize(1150, 750); 
+        resize(1200, 800); 
+        setMinimumSize(1100, 750);
         
         QWidget* central = new QWidget(); setCentralWidget(central);
         QVBoxLayout* rootLayout = new QVBoxLayout(central); rootLayout->setContentsMargins(0, 0, 0, 0); rootLayout->setSpacing(0);
         
-        // --- CUSTOM TITLE BAR ---
+        // --- TITLE BAR ---
         QWidget* titleBar = new QWidget(); titleBar->setFixedHeight(45); titleBar->setObjectName("titleBar");
+        // Update Title Bar Color matching sidebar
+        titleBar->setStyleSheet("background-color: #0e9ebe;");
         QHBoxLayout* tbLayout = new QHBoxLayout(titleBar); tbLayout->setContentsMargins(20, 0, 15, 0);
-        QLabel* appTitle = new QLabel("🚀 <b>RasFocus Pro</b>"); appTitle->setStyleSheet("font-size: 15px; border: none;"); tbLayout->addWidget(appTitle); tbLayout->addStretch();
+        QLabel* appTitle = new QLabel("🚀 <b>RasFocus Pro</b>"); appTitle->setStyleSheet("font-size: 16px; border: none; color: white;"); tbLayout->addWidget(appTitle); tbLayout->addStretch();
         
-        // Minimize Button
         QPushButton* btnMin = new QPushButton("—"); btnMin->setFixedSize(35, 30); 
-        btnMin->setStyleSheet("QPushButton { background: transparent; color: #64748B; } QPushButton:hover { background: #E2E8F0; color: #0F172A; }");
+        btnMin->setStyleSheet("QPushButton { background: transparent; color: white; } QPushButton:hover { background: #0b88a4; color: white; }");
         connect(btnMin, &QPushButton::clicked, this, &QWidget::showMinimized); tbLayout->addWidget(btnMin);
         
-        // Maximize/Restore Button
         QPushButton* btnMax = new QPushButton("⬜"); btnMax->setFixedSize(35, 30); 
-        btnMax->setStyleSheet("QPushButton { background: transparent; color: #64748B; font-size: 14px; } QPushButton:hover { background: #E2E8F0; color: #0F172A; }");
-        connect(btnMax, &QPushButton::clicked, this, [=]() {
-            if (this->isMaximized()) { this->showNormal(); btnMax->setText("⬜"); } 
-            else { this->showMaximized(); btnMax->setText("🗗"); }
-        });
+        btnMax->setStyleSheet("QPushButton { background: transparent; color: white; font-size: 14px; } QPushButton:hover { background: #0b88a4; color: white; }");
+        connect(btnMax, &QPushButton::clicked, this, [=]() { if (this->isMaximized()) { this->showNormal(); btnMax->setText("⬜"); } else { this->showMaximized(); btnMax->setText("🗗"); } });
         tbLayout->addWidget(btnMax);
         
-        // Close Button
         QPushButton* btnClose = new QPushButton("✕"); btnClose->setFixedSize(35, 30); 
-        btnClose->setStyleSheet("QPushButton { background: transparent; color: #64748B; font-size: 16px; font-weight: bold; } QPushButton:hover { background: #EF4444; color: white; }");
+        btnClose->setStyleSheet("QPushButton { background: transparent; color: white; font-size: 16px; font-weight: bold; } QPushButton:hover { background: #EF4444; color: white; }");
         connect(btnClose, &QPushButton::clicked, this, &QWidget::hide); tbLayout->addWidget(btnClose);
-        
         rootLayout->addWidget(titleBar);
         
         // MAIN CONTENT
         QWidget* mainContent = new QWidget(); QHBoxLayout* mainLayout = new QHBoxLayout(mainContent); mainLayout->setContentsMargins(0, 0, 0, 0); mainLayout->setSpacing(0);
         
-        // Using Unicode text icons instead of emojis
-        sidebar = new QListWidget(); sidebar->setObjectName("sidebar"); sidebar->setFixedWidth(260);
-        sidebar->addItem("  🗠  Overview"); sidebar->addItem("  ⛨  Blocks & Allows"); sidebar->addItem("  🗓  Schedule"); sidebar->addItem("  ⚙  Advanced Features");
-        sidebar->addItem("  ⏱  Tools & Pomodoro"); sidebar->addItem("  🎴  Settings & Theme"); sidebar->addItem("  💬  Live Chat"); sidebar->addItem("  ★  Premium Upgrade");
+        sidebar = new QListWidget(); sidebar->setObjectName("sidebar"); sidebar->setFixedWidth(230);
+        sidebar->addItem("  🗠  Dashboard"); 
+        sidebar->addItem("  🗓  Schedule"); 
+        sidebar->addItem("  ⚙  Advanced");
+        sidebar->addItem("  ⏱  Tools"); 
+        sidebar->addItem("  🎴  Settings"); 
+        sidebar->addItem("  💬  Live Chat"); 
+        sidebar->addItem("  ★  Upgrade");
         
         stack = new QStackedWidget();
-        setupOverviewPage(); setupListsPage(); setupSchedulePage(); setupAdvancedPage(); setupToolsPage(); setupSettingsPage(); setupChatPage(); setupUpgradePage();
+        setupDashboardPage(); setupSchedulePage(); setupAdvancedPage(); setupToolsPage(); setupSettingsPage(); setupChatPage(); setupUpgradePage();
         
         mainLayout->addWidget(sidebar); mainLayout->addWidget(stack); rootLayout->addWidget(mainContent);
         
@@ -476,9 +431,7 @@ public:
         });
         sidebar->setCurrentRow(0);
         
-        // --- SIZE GRIP (For frameless resizing) ---
-        QSizeGrip *sizeGrip = new QSizeGrip(this);
-        sizeGrip->setStyleSheet("width: 15px; height: 15px; background: transparent;");
+        QSizeGrip *sizeGrip = new QSizeGrip(this); sizeGrip->setStyleSheet("width: 15px; height: 15px; background: transparent;");
         rootLayout->addWidget(sizeGrip, 0, Qt::AlignBottom | Qt::AlignRight);
 
         setupTray(); LoadAllData(); ApplyEyeFilters();
@@ -492,128 +445,112 @@ public:
     void mouseReleaseEvent(QMouseEvent *event) override { isDragging = false; event->accept(); }
 
 private:
-    void setupOverviewPage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(50, 40, 50, 40); l->setSpacing(25);
+    void setupDashboardPage() {
+        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(30, 20, 30, 20); l->setSpacing(15);
         
-        QLabel* title = new QLabel("Dashboard Overview"); title->setStyleSheet("font-size: 28px; font-weight: bold; color: #0F172A;"); l->addWidget(title);
+        // ROW 1: Profile & Top Buttons
+        QHBoxLayout* h1 = new QHBoxLayout();
+        h1->addWidget(new QLabel("<b>Profile Name:</b>")); editName = new QLineEdit(); editName->setPlaceholderText("Enter Name"); editName->setFixedWidth(200); h1->addWidget(editName);
+        SmoothButton* btnSave = new SmoothButton("Save"); btnSave->setStyleSheet("background: #10B981; color: white; padding: 10px;"); h1->addWidget(btnSave);
+        lblLicense = new QLabel("TRIAL: 7 DAYS LEFT"); lblLicense->setStyleSheet("font-weight: bold; font-size: 14px; margin-left: 20px; color: #F59E0B;"); h1->addWidget(lblLicense);
+        h1->addStretch();
+        SmoothButton* btnChat = new SmoothButton("LIVE CHAT"); btnChat->setStyleSheet("background: #EC4899; color: white; padding: 10px 20px;"); 
+        SmoothButton* btnUpg = new SmoothButton("UPGRADE"); btnUpg->setStyleSheet("background: #F59E0B; color: white; padding: 10px 20px;");
+        h1->addWidget(btnChat); h1->addWidget(btnUpg);
+        l->addLayout(h1);
         
-        QFrame* profileCard = createCard(); QHBoxLayout* h1 = new QHBoxLayout(profileCard); h1->setContentsMargins(30, 20, 30, 20);
-        h1->addWidget(new QLabel("<b>Profile Name:</b>")); editName = new QLineEdit(); editName->setPlaceholderText("Enter your name"); editName->setFixedWidth(250); h1->addWidget(editName);
-        SmoothButton* btnSave = new SmoothButton("Save"); btnSave->setStyleSheet("background: #F1F5F9; color: #0F172A; padding: 10px 20px; border: 1px solid #CBD5E1;"); h1->addWidget(btnSave);
-        lblLicense = new QLabel("Checking..."); lblLicense->setStyleSheet("font-weight: bold; font-size: 14px; margin-left: 20px;"); h1->addWidget(lblLicense); h1->addStretch();
-        l->addWidget(profileCard);
         connect(btnSave, &QPushButton::clicked, [=](){ userProfileName = editName->text(); SaveAllData(); SyncProfileNameToFirebase(userProfileName); new ToastNotification("✅ Profile Saved!", this); });
-        
-        QFrame* focusCard = createCard(); QVBoxLayout* fcLayout = new QVBoxLayout(focusCard); fcLayout->setContentsMargins(30, 30, 30, 30); fcLayout->setSpacing(25);
-        QLabel* st = new QLabel("Start a Focus Session"); st->setStyleSheet("font-size: 18px; font-weight: bold;"); fcLayout->addWidget(st);
-        
-        QGridLayout* g = new QGridLayout(); g->setSpacing(20);
-        g->addWidget(new QLabel("<b>Lock via Password:</b>"), 0, 0); 
-        editPass = new QLineEdit(); editPass->setEchoMode(QLineEdit::Password); editPass->setPlaceholderText("Friend sets this"); 
-        // Note: Styling based on lock state is handled in updateUIStates()
-        g->addWidget(editPass, 1, 0);
-        
-        g->addWidget(new QLabel("<b>Lock via Timer:</b>"), 0, 1); 
-        QHBoxLayout* th = new QHBoxLayout(); spinHr = new QSpinBox(); spinHr->setSuffix(" Hr"); spinHr->setRange(0, 24); spinMin = new QSpinBox(); spinMin->setSuffix(" Min"); spinMin->setMaximum(59); th->addWidget(spinHr); th->addWidget(spinMin); g->addLayout(th, 1, 1);
-        fcLayout->addLayout(g);
-        
+        connect(btnChat, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(5); }); // Navigates to Chat Tab
+        connect(btnUpg, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(6); }); // Navigates to Upgrade Tab
+
+        // ROW 2: Focus Controls
+        QFrame* lockCard = createCard(); QVBoxLayout* lockL = new QVBoxLayout(lockCard); lockL->setContentsMargins(20, 15, 20, 15);
         QHBoxLayout* h2 = new QHBoxLayout();
-        btnStart = new SmoothButton("▶ START FOCUS"); btnStart->setStyleSheet("background-color: #10B981; color: white; padding: 15px 35px; font-size: 15px;");
-        btnStop = new SmoothButton("⏹ STOP FOCUS"); btnStop->setStyleSheet("background-color: #EF4444; color: white; padding: 15px 35px; font-size: 15px;");
-        h2->addWidget(btnStart); h2->addWidget(btnStop); h2->addStretch(); fcLayout->addLayout(h2);
-        l->addWidget(focusCard);
+        h2->addWidget(new QLabel("<b>Friend Control (Pass):</b>")); editPass = new QLineEdit(); editPass->setEchoMode(QLineEdit::Password); editPass->setFixedWidth(150); h2->addWidget(editPass);
+        h2->addWidget(new QLabel("<b>Self Control (Timer):</b>")); spinHr = new QSpinBox(); spinHr->setSuffix(" Hr"); spinMin = new QSpinBox(); spinMin->setSuffix(" Min"); h2->addWidget(spinHr); h2->addWidget(spinMin);
+        btnStart = new SmoothButton("START"); btnStart->setStyleSheet("background-color: #10B981; color: white; padding: 10px 25px;"); h2->addWidget(btnStart);
+        btnStop = new SmoothButton("STOP"); btnStop->setStyleSheet("background-color: #64748B; color: white; padding: 10px 25px;"); h2->addWidget(btnStop);
+        h2->addStretch();
         
-        dashProgress = new CircularProgress(this); l->addWidget(dashProgress, 0, Qt::AlignCenter);
-        lblStatus = new QLabel(""); lblStatus->setAlignment(Qt::AlignCenter); lblStatus->setStyleSheet("color: #EF4444; font-weight: bold;"); l->addWidget(lblStatus);
-        lblAdminMsg = new QLabel(""); lblAdminMsg->setAlignment(Qt::AlignCenter); lblAdminMsg->setStyleSheet("color: #8B5CF6; font-weight: bold;"); l->addWidget(lblAdminMsg);
+        // Tool Shortcut Buttons (Navigates to Tools Tab)
+        SmoothButton* btnSW = new SmoothButton("STOP WATCH"); btnSW->setStyleSheet("background: #0F172A; color: white; padding: 10px;");
+        SmoothButton* btnPomo = new SmoothButton("POMODORO"); btnPomo->setStyleSheet("background: #EF4444; color: white; padding: 10px;");
+        SmoothButton* btnEye = new SmoothButton("EYE CURE"); btnEye->setStyleSheet("background: #8B5CF6; color: white; padding: 10px;");
+        h2->addWidget(btnSW); h2->addWidget(btnPomo); h2->addWidget(btnEye);
+        lockL->addLayout(h2);
+        
+        lblStatus = new QLabel(""); lblStatus->setStyleSheet("color: #EF4444; font-weight: bold; margin-top: 5px;"); lockL->addWidget(lblStatus, 0, Qt::AlignCenter);
+        l->addWidget(lockCard);
 
-        l->addStretch(); stack->addWidget(page);
         connect(btnStart, &QPushButton::clicked, this, &RasFocusApp::onStartFocus); connect(btnStop, &QPushButton::clicked, this, &RasFocusApp::onStopFocus);
-    }
+        connect(btnSW, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(3); if(!swWindow) swWindow = new StopwatchWindow(); swWindow->showNormal(); swWindow->activateWindow(); });
+        connect(btnPomo, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(3); });
+        connect(btnEye, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(3); });
 
-    void updateEmptyState(QListWidget* lw, const QString& msg) {
-        if(lw->count() == 0) {
-            QListWidgetItem* item = new QListWidgetItem(lw);
-            item->setFlags(item->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsEnabled); // unselectable
-            QLabel* emptyLbl = new QLabel(msg);
-            emptyLbl->setStyleSheet("color: #94A3B8; font-style: italic; padding: 10px;");
-            emptyLbl->setAlignment(Qt::AlignCenter);
-            lw->setItemWidget(item, emptyLbl);
-        } else {
-            // Remove empty state item if it exists
-            if(lw->count() > 0 && lw->item(0)->flags() == (lw->item(0)->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsEnabled)) {
-                delete lw->takeItem(0);
-            }
-        }
-    }
-
-    void addInlineItem(QListWidget* listWidget, const QString& text, const QString& emptyMsg) {
-        if (text.isEmpty()) return;
-        
-        // Remove empty state if present
-        if(listWidget->count() > 0 && listWidget->item(0)->flags() == (listWidget->item(0)->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsEnabled)) {
-            delete listWidget->takeItem(0);
-        }
-
-        for (int i = 0; i < listWidget->count(); ++i) { QWidget* widget = listWidget->itemWidget(listWidget->item(i)); if (widget) { QLabel* label = widget->findChild<QLabel*>(); if (label && label->text() == text) return; } }
-        
-        QListWidgetItem* item = new QListWidgetItem(listWidget); item->setSizeHint(QSize(0, 40)); 
-        QWidget* customWidget = new QWidget(); QHBoxLayout* layout = new QHBoxLayout(customWidget); layout->setContentsMargins(15, 0, 10, 0);
-        QLabel* label = new QLabel(text); label->setStyleSheet("font-size: 14px; font-weight: 500; color: #334155;");
-        SmoothButton* btnRemove = new SmoothButton("✖"); btnRemove->setFixedSize(24, 24); btnRemove->setStyleSheet("QPushButton { background: #F1F5F9; color: #94A3B8; border-radius: 12px; font-size: 10px; } QPushButton:hover { background: #FEE2E2; color: #EF4444; }");
-        layout->addWidget(label); layout->addStretch(); layout->addWidget(btnRemove); listWidget->setItemWidget(item, customWidget);
-        
-        connect(btnRemove, &QPushButton::clicked, [=]() { 
-            int row = listWidget->row(item); delete listWidget->takeItem(row); 
-            updateEmptyState(listWidget, emptyMsg);
-            SyncListsFromUI(); 
-        });
-    }
-
-    void setupListsPage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(40, 40, 40, 40); l->setSpacing(20);
-        QLabel* pageTitle = new QLabel("App & Website Filtering"); pageTitle->setStyleSheet("font-size: 28px; font-weight: bold; color: #0F172A; margin-bottom: 10px;"); l->addWidget(pageTitle);
-        
-        QFrame* modeCard = createCard(); QHBoxLayout* radL = new QHBoxLayout(modeCard); radL->setContentsMargins(25, 20, 25, 20);
-        rbBlock = new QRadioButton("<b>Block List Mode</b> (Blocks specific)"); rbAllow = new QRadioButton("<b>Allow List Mode</b> (Blocks EVERYTHING except allowed)");
-        rbBlock->setStyleSheet("font-size: 15px;"); rbAllow->setStyleSheet("font-size: 15px;"); rbBlock->setChecked(true); radL->addWidget(rbBlock); radL->addWidget(rbAllow); l->addWidget(modeCard);
+        // ROW 3: Mode Selection
+        QHBoxLayout* h3 = new QHBoxLayout();
+        rbBlock = new QRadioButton("<b>Block List Mode</b>"); rbAllow = new QRadioButton("<b>Allow List Mode</b>");
+        rbBlock->setChecked(true); h3->addWidget(rbBlock); h3->addWidget(rbAllow); h3->addStretch();
         connect(rbBlock, &QRadioButton::toggled, [=](){ useAllowMode = rbAllow->isChecked(); SaveAllData(); });
-        
-        QFrame* listCard = createCard(); QGridLayout* g = new QGridLayout(listCard); g->setContentsMargins(30, 30, 30, 30); g->setSpacing(30);
-        QString btnStyle = "background-color: #3B82F6; color: white; padding: 10px 15px;";
-        QString listStyle = "QListWidget { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 5px; } QListWidget::item { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; margin-bottom: 5px; } QListWidget::item:hover { border-color: #CBD5E1; }";
+        l->addLayout(h3);
+
+        // ROW 4: App & Website Lists (3 Columns)
+        QFrame* listCard = createCard(); QGridLayout* g = new QGridLayout(listCard); g->setContentsMargins(15, 15, 15, 15); g->setSpacing(15);
+        QString btnStyle = "background-color: #3B82F6; color: white; padding: 8px 15px;";
+        QString listStyle = "QListWidget { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 5px; } QListWidget::item { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; margin-bottom: 5px; }";
 
         auto makeList = [&](QString title, QLineEdit*& inA, QComboBox*& inW, QListWidget*& lA, QListWidget*& lW, int col) {
-            QLabel* lblApp = new QLabel("<b>" + title + " Apps (.exe):</b>"); lblApp->setStyleSheet("font-size: 16px; margin-bottom: 5px;"); g->addWidget(lblApp, 0, col);
-            QHBoxLayout* h = new QHBoxLayout(); inA = new QLineEdit(); inA->setPlaceholderText("E.g., chrome.exe"); SmoothButton* bA = new SmoothButton("Add"); bA->setStyleSheet(btnStyle); h->addWidget(inA); h->addWidget(bA); g->addLayout(h, 1, col);
-            lA = new QListWidget(); lA->setStyleSheet(listStyle); lA->setSelectionMode(QAbstractItemView::NoSelection); g->addWidget(lA, 2, col);
-            updateEmptyState(lA, "No apps added yet.");
+            g->addWidget(new QLabel("<b>" + title + " Apps (.exe):</b>"), 0, col);
+            QHBoxLayout* h = new QHBoxLayout(); inA = new QLineEdit(); SmoothButton* bA = new SmoothButton("Add"); bA->setStyleSheet(btnStyle); h->addWidget(inA); h->addWidget(bA); g->addLayout(h, 1, col);
+            lA = new QListWidget(); lA->setStyleSheet(listStyle); g->addWidget(lA, 2, col); updateEmptyState(lA, "No apps added.");
 
-            QLabel* lblWeb = new QLabel("<b>" + title + " Websites:</b>"); lblWeb->setStyleSheet("font-size: 16px; margin-top: 15px; margin-bottom: 5px;"); g->addWidget(lblWeb, 3, col);
+            g->addWidget(new QLabel("<b>" + title + " Websites:</b>"), 3, col);
             QHBoxLayout* h2 = new QHBoxLayout(); inW = new QComboBox(); inW->setEditable(true); SmoothButton* bW = new SmoothButton("Add"); bW->setStyleSheet(btnStyle); h2->addWidget(inW); h2->addWidget(bW); g->addLayout(h2, 4, col);
-            lW = new QListWidget(); lW->setStyleSheet(listStyle); lW->setSelectionMode(QAbstractItemView::NoSelection); g->addWidget(lW, 5, col);
-            updateEmptyState(lW, "No websites added yet.");
+            lW = new QListWidget(); lW->setStyleSheet(listStyle); g->addWidget(lW, 5, col); updateEmptyState(lW, "No websites added.");
             
-            connect(bA, &QPushButton::clicked, [=](){ QString t = inA->text().trimmed().toLower(); if(!t.isEmpty()){ if(!t.endsWith(".exe")) t += ".exe"; addInlineItem(lA, t, "No apps added yet."); inA->clear(); SyncListsFromUI(); } });
-            connect(bW, &QPushButton::clicked, [=](){ QString t = inW->currentText().trimmed().toLower(); if(!t.isEmpty()){ addInlineItem(lW, t, "No websites added yet."); inW->setCurrentText(""); SyncListsFromUI(); } });
+            connect(bA, &QPushButton::clicked, [=](){ QString t = inA->text().trimmed().toLower(); if(!t.isEmpty()){ if(!t.endsWith(".exe")) t += ".exe"; addInlineItem(lA, t, "No apps added."); inA->clear(); SyncListsFromUI(); } });
+            connect(bW, &QPushButton::clicked, [=](){ QString t = inW->currentText().trimmed().toLower(); if(!t.isEmpty()){ addInlineItem(lW, t, "No websites added."); inW->setCurrentText(""); SyncListsFromUI(); } });
         };
         
         makeList("🚫 Block", inBlockApp, inBlockWeb, listBlockApp, listBlockWeb, 0);
         
         QVBoxLayout* midLay = new QVBoxLayout();
-        QLabel* lblRun = new QLabel("<b>🏃 Running Apps:</b>"); lblRun->setStyleSheet("font-size: 16px; margin-bottom: 5px;"); midLay->addWidget(lblRun);
-        listRunning = new QListWidget(); listRunning->setStyleSheet("QListWidget { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 5px; } QListWidget::item { padding: 10px; border-bottom: 1px solid #F1F5F9; } QListWidget::item:selected { background: #EFF6FF; color: #3B82F6; font-weight: bold; border-radius: 6px; }"); midLay->addWidget(listRunning);
-        SmoothButton* bRun = new SmoothButton("Add Selected to Active List"); bRun->setStyleSheet("background-color: #10B981; color: white; padding: 12px; margin-top: 10px;"); midLay->addWidget(bRun);
+        midLay->addWidget(new QLabel("<b>🏃 Running Apps:</b>"));
+        listRunning = new QListWidget(); listRunning->setStyleSheet("QListWidget { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; } QListWidget::item { padding: 8px; border-bottom: 1px solid #F1F5F9; color: #334155;} QListWidget::item:selected { background: #EFF6FF; color: #3B82F6; font-weight: bold; }"); midLay->addWidget(listRunning);
+        SmoothButton* bRun = new SmoothButton("Add Selected App to List"); bRun->setStyleSheet("background-color: #3B82F6; color: white; padding: 10px; margin-top: 5px;"); midLay->addWidget(bRun);
         g->addLayout(midLay, 0, 1, 6, 1);
-        
-        connect(bRun, &QPushButton::clicked, [=](){ if(!listRunning->currentItem()) return; QString app = listRunning->currentItem()->text().trimmed().toLower(); if(!app.endsWith(".exe")) app += ".exe"; if(useAllowMode) { addInlineItem(listAllowApp, app, "No apps added yet."); } else { addInlineItem(listBlockApp, app, "No apps added yet."); } SyncListsFromUI(); });
+        connect(bRun, &QPushButton::clicked, [=](){ if(!listRunning->currentItem()) return; QString app = listRunning->currentItem()->text().trimmed().toLower(); if(!app.endsWith(".exe")) app += ".exe"; if(useAllowMode) { addInlineItem(listAllowApp, app, "No apps added."); } else { addInlineItem(listBlockApp, app, "No apps added."); } SyncListsFromUI(); });
         
         makeList("✅ Allow", inAllowApp, inAllowWeb, listAllowApp, listAllowWeb, 2);
         l->addWidget(listCard);
         
-        QStringList popSites = {"facebook.com", "youtube.com", "instagram.com", "tiktok.com", "reddit.com", "netflix.com"};
+        QStringList popSites = {"facebook.com", "youtube.com", "instagram.com", "tiktok.com"};
         inBlockWeb->addItems(popSites); inAllowWeb->addItems(popSites); inBlockWeb->setCurrentText(""); inAllowWeb->setCurrentText("");
+        
+        lblAdminMsg = new QLabel(""); lblAdminMsg->setAlignment(Qt::AlignCenter); lblAdminMsg->setStyleSheet("color: #8B5CF6; font-weight: bold;"); l->addWidget(lblAdminMsg);
         stack->addWidget(page);
+    }
+
+    void updateEmptyState(QListWidget* lw, const QString& msg) {
+        if(lw->count() == 0) {
+            QListWidgetItem* item = new QListWidgetItem(lw);
+            item->setFlags(item->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsEnabled); 
+            QLabel* emptyLbl = new QLabel(msg); emptyLbl->setStyleSheet("color: #94A3B8; font-style: italic; padding: 5px;"); emptyLbl->setAlignment(Qt::AlignCenter); lw->setItemWidget(item, emptyLbl);
+        } else {
+            if(lw->count() > 0 && lw->item(0)->flags() == (lw->item(0)->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsEnabled)) { delete lw->takeItem(0); }
+        }
+    }
+
+    void addInlineItem(QListWidget* listWidget, const QString& text, const QString& emptyMsg) {
+        if (text.isEmpty()) return;
+        if(listWidget->count() > 0 && listWidget->item(0)->flags() == (listWidget->item(0)->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsEnabled)) { delete listWidget->takeItem(0); }
+        for (int i = 0; i < listWidget->count(); ++i) { QWidget* widget = listWidget->itemWidget(listWidget->item(i)); if (widget) { QLabel* label = widget->findChild<QLabel*>(); if (label && label->text() == text) return; } }
+        QListWidgetItem* item = new QListWidgetItem(listWidget); item->setSizeHint(QSize(0, 35)); 
+        QWidget* customWidget = new QWidget(); QHBoxLayout* layout = new QHBoxLayout(customWidget); layout->setContentsMargins(10, 0, 5, 0);
+        QLabel* label = new QLabel(text); label->setStyleSheet("font-size: 13px; font-weight: 500; color: #334155;");
+        SmoothButton* btnRemove = new SmoothButton("✖"); btnRemove->setFixedSize(22, 22); btnRemove->setStyleSheet("QPushButton { background: #F1F5F9; color: #94A3B8; border-radius: 11px; font-size: 10px; } QPushButton:hover { background: #EF4444; color: white; }");
+        layout->addWidget(label); layout->addStretch(); layout->addWidget(btnRemove); listWidget->setItemWidget(item, customWidget);
+        connect(btnRemove, &QPushButton::clicked, [=]() { int row = listWidget->row(item); delete listWidget->takeItem(row); updateEmptyState(listWidget, emptyMsg); SyncListsFromUI(); });
     }
 
     void setupSchedulePage() {
@@ -629,7 +566,7 @@ private:
         QLabel* title = new QLabel("Advanced Restrictions"); title->setStyleSheet("font-size: 28px; font-weight: bold;"); l->addWidget(title);
         
         QFrame* advCard = createCard(); QVBoxLayout* advLayout = new QVBoxLayout(advCard); advLayout->setContentsMargins(40, 40, 40, 40); advLayout->setSpacing(20);
-        QString tStyle = "QCheckBox { font-size: 16px; padding: 15px 20px; border-radius: 8px; font-weight: 600; background: #F8FAFC; border: 1px solid #E2E8F0; } QCheckBox::indicator { width: 45px; height: 24px; border-radius: 12px; } QCheckBox::indicator:unchecked { background-color: #CBD5E1; } QCheckBox::indicator:checked { background-color: #10B981; }";
+        QString tStyle = "QCheckBox { font-size: 16px; padding: 15px 20px; border-radius: 8px; font-weight: 600; background: #F8FAFC; border: 1px solid #E2E8F0; color: #1E293B; } QCheckBox::indicator { width: 45px; height: 24px; border-radius: 12px; } QCheckBox::indicator:unchecked { background-color: #CBD5E1; } QCheckBox::indicator:checked { background-color: #10B981; }";
         
         chkReels = new QCheckBox("   Block Facebook Reels & Watch (Strict Mode)"); chkReels->setStyleSheet(tStyle);
         chkShorts = new QCheckBox("   Block YouTube Shorts"); chkShorts->setStyleSheet(tStyle);
@@ -640,7 +577,6 @@ private:
         connect(chkReels, &QCheckBox::clicked, [=](bool c){ blockReels = c; SaveAllData(); SyncTogglesToFirebase(); });
         connect(chkShorts, &QCheckBox::clicked, [=](bool c){ blockShorts = c; SaveAllData(); SyncTogglesToFirebase(); });
         connect(chkAdblock, &QCheckBox::clicked, [=](bool c){ isAdblockActive = c; ToggleAdBlock(c); SaveAllData(); SyncTogglesToFirebase(); });
-        
         l->addStretch(); stack->addWidget(page);
     }
 
@@ -648,9 +584,7 @@ private:
         QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(40, 30, 40, 30); l->setSpacing(20);
         QLabel* title = new QLabel("Productivity Tools"); title->setStyleSheet("font-size: 28px; font-weight: bold; margin-bottom: 5px;"); l->addWidget(title);
         
-        // ROW 1: POMODORO & STOPWATCH
         QHBoxLayout* row1 = new QHBoxLayout(); row1->setSpacing(20);
-        
         QFrame* pomoCard = createCard(); QVBoxLayout* pl = new QVBoxLayout(pomoCard); pl->setContentsMargins(30, 30, 30, 30);
         QLabel* pt = new QLabel("🍅 Pomodoro Timer"); pt->setStyleSheet("font-size: 20px; font-weight: bold; color: #EF4444; margin-bottom: 15px;"); pl->addWidget(pt);
         QHBoxLayout* ph1 = new QHBoxLayout(); ph1->addWidget(new QLabel("<b>Focus (Min):</b>")); pomoMin = new QSpinBox(); pomoMin->setValue(25); ph1->addWidget(pomoMin); ph1->addStretch(); pl->addLayout(ph1);
@@ -662,73 +596,41 @@ private:
         lblPomoStatus = new QLabel("Status: Ready"); lblPomoStatus->setStyleSheet("color: #64748B; font-weight: bold; margin-top: 10px;"); pl->addWidget(lblPomoStatus);
         row1->addWidget(pomoCard);
         
-        QFrame* swCard = createCard(); QVBoxLayout* sl = new QVBoxLayout(swCard); sl->setContentsMargins(30, 30, 30, 30);
-        QLabel* st = new QLabel("⏱️ Pro Stopwatch"); st->setStyleSheet("font-size: 20px; font-weight: bold; color: #3B82F6; margin-bottom: 15px;"); sl->addWidget(st);
-        QLabel* sDesc = new QLabel("A floating, always-on-top stopwatch\nfor precise time tracking."); sDesc->setStyleSheet("color: #64748B;"); sl->addWidget(sDesc); sl->addStretch();
-        SmoothButton* bOpenSw = new SmoothButton("Open Widget"); bOpenSw->setStyleSheet("background: #3B82F6; color: white; padding: 12px;"); sl->addWidget(bOpenSw);
-        row1->addWidget(swCard);
-        l->addLayout(row1);
-        
-        // ROW 2: EYE CURE CARD 
-        QFrame* eyeCard = createCard(); QVBoxLayout* el = new QVBoxLayout(eyeCard); el->setContentsMargins(30, 30, 30, 30); el->setSpacing(20);
+        QFrame* eyeCard = createCard(); QVBoxLayout* el = new QVBoxLayout(eyeCard); el->setContentsMargins(30, 30, 30, 30); el->setSpacing(15);
         QLabel* et = new QLabel("👁️ Eye Cure Filters"); et->setStyleSheet("font-size: 20px; font-weight: bold; color: #8B5CF6;"); el->addWidget(et);
-        
         QString sStyle = "QSlider::groove:horizontal { background: #E2E8F0; height: 6px; border-radius: 3px; } QSlider::sub-page:horizontal { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FDE68A, stop:1 #F59E0B); border-radius: 3px; } QSlider::handle:horizontal { background: #FFFFFF; border: 3px solid #F59E0B; width: 16px; height: 16px; margin: -6px 0; border-radius: 11px; }";
         QString dStyle = "QSlider::groove:horizontal { background: #E2E8F0; height: 6px; border-radius: 3px; } QSlider::sub-page:horizontal { background: #38BDF8; border-radius: 3px; } QSlider::handle:horizontal { background: #FFFFFF; border: 3px solid #38BDF8; width: 16px; height: 16px; margin: -6px 0; border-radius: 11px; }";
-
-        QHBoxLayout* sRow = new QHBoxLayout();
-        // Warmth
-        QVBoxLayout* warmLay = new QVBoxLayout();
-        QLabel* lblWarmVal = new QLabel("3650K"); lblWarmVal->setAlignment(Qt::AlignCenter); lblWarmVal->setStyleSheet("background: #F59E0B; color: white; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 12px;"); warmLay->addWidget(lblWarmVal, 0, Qt::AlignCenter);
-        sliderWarm = new QSlider(Qt::Horizontal); sliderWarm->setRange(0, 100); sliderWarm->setValue(0); sliderWarm->setStyleSheet(sStyle); warmLay->addWidget(sliderWarm);
-        QHBoxLayout* wt = new QHBoxLayout(); wt->addWidget(new QLabel("Warm")); wt->addStretch(); wt->addWidget(new QLabel("Cool")); warmLay->addLayout(wt); sRow->addLayout(warmLay);
-        sRow->addSpacing(30);
-        // Brightness
-        QVBoxLayout* brightLay = new QVBoxLayout();
-        QLabel* lblBrightVal = new QLabel("100%"); lblBrightVal->setAlignment(Qt::AlignCenter); lblBrightVal->setStyleSheet("background: #38BDF8; color: white; border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 12px;"); brightLay->addWidget(lblBrightVal, 0, Qt::AlignLeft);
-        sliderBright = new QSlider(Qt::Horizontal); sliderBright->setRange(10, 100); sliderBright->setValue(100); sliderBright->setStyleSheet(dStyle); brightLay->addWidget(sliderBright);
-        QHBoxLayout* bt = new QHBoxLayout(); bt->addWidget(new QLabel("Dim")); bt->addStretch(); bt->addWidget(new QLabel("Bright")); brightLay->addLayout(bt); sRow->addLayout(brightLay);
-        el->addLayout(sRow);
-
-        // PRESETS
-        QGridLayout* pg = new QGridLayout(); pg->setSpacing(12);
-        QString bN = "QPushButton { background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; padding: 10px; } QPushButton:hover { background: #E2E8F0; }";
-        QString bA = "QPushButton { background: #0EA5E9; color: white; border: none; padding: 10px; }";
         
-        SmoothButton* btnPause = new SmoothButton("Pause"); btnPause->setStyleSheet(bN); SmoothButton* btnHealth = new SmoothButton("Health"); btnHealth->setStyleSheet(bA);
+        QHBoxLayout* warmH = new QHBoxLayout(); warmH->addWidget(new QLabel("Warmth:")); sliderWarm = new QSlider(Qt::Horizontal); sliderWarm->setRange(0, 100); sliderWarm->setStyleSheet(sStyle); warmH->addWidget(sliderWarm); el->addLayout(warmH);
+        QHBoxLayout* brightH = new QHBoxLayout(); brightH->addWidget(new QLabel("Bright:")); sliderBright = new QSlider(Qt::Horizontal); sliderBright->setRange(10, 100); sliderBright->setValue(100); sliderBright->setStyleSheet(dStyle); brightH->addWidget(sliderBright); el->addLayout(brightH);
+        
+        QGridLayout* pg = new QGridLayout(); pg->setSpacing(8);
+        QString bN = "QPushButton { background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; padding: 8px; } QPushButton:hover { background: #E2E8F0; color: #1E293B; }";
+        SmoothButton* btnPause = new SmoothButton("Pause"); btnPause->setStyleSheet(bN); SmoothButton* btnHealth = new SmoothButton("Health"); btnHealth->setStyleSheet(bN);
         SmoothButton* btnGame = new SmoothButton("Game"); btnGame->setStyleSheet(bN); SmoothButton* btnMovie = new SmoothButton("Movie"); btnMovie->setStyleSheet(bN);
-        SmoothButton* btnOffice = new SmoothButton("Office"); btnOffice->setStyleSheet(bN); SmoothButton* btnReading = new SmoothButton("Reading"); btnReading->setStyleSheet(bN);
-        
-        pg->addWidget(btnPause, 0, 0); pg->addWidget(btnHealth, 0, 1); pg->addWidget(btnGame, 0, 2); 
-        pg->addWidget(btnMovie, 1, 0); pg->addWidget(btnOffice, 1, 1); pg->addWidget(btnReading, 1, 2);
+        pg->addWidget(btnPause, 0, 0); pg->addWidget(btnHealth, 0, 1); pg->addWidget(btnGame, 1, 0); pg->addWidget(btnMovie, 1, 1);
         el->addLayout(pg);
-        l->addWidget(eyeCard);
+        row1->addWidget(eyeCard);
+        l->addLayout(row1);
 
-        // LOGIC
         connect(bPStart, &QPushButton::clicked, [=](){ if(!isSessionActive && !isTrialExpired) { pomoLengthMin = pomoMin->value(); pomoTotalSessions = pomoSes->value(); isPomodoroMode = true; isSessionActive = true; pomoTicks = 0; pomoCurrentSession = 1; SaveAllData(); updateUIStates(); new ToastNotification("🍅 Pomodoro Started!", this); } });
         connect(bPStop, &QPushButton::clicked, [=](){ if(isPomodoroMode) { ClearSessionData(); updateUIStates(); new ToastNotification("🛑 Stopped!", this); } });
-        connect(bOpenSw, &QPushButton::clicked, [=](){ if(!swWindow) swWindow = new StopwatchWindow(); swWindow->showNormal(); swWindow->activateWindow(); });
+        connect(sliderBright, &QSlider::valueChanged, [=](int v){ eyeBrightness = v; ApplyEyeFilters(); SaveAllData(); });
+        connect(sliderWarm, &QSlider::valueChanged, [=](int v){ eyeWarmth = v; ApplyEyeFilters(); SaveAllData(); });
         
-        connect(sliderBright, &QSlider::valueChanged, [=](int v){ eyeBrightness = v; lblBrightVal->setText(QString::number(v) + "%"); ApplyEyeFilters(); SaveAllData(); });
-        connect(sliderWarm, &QSlider::valueChanged, [=](int v){ eyeWarmth = v; int k = 6500 - (v * 30); lblWarmVal->setText(QString::number(k) + "K"); ApplyEyeFilters(); SaveAllData(); });
-
-        auto rB = [=]() { btnPause->setStyleSheet(bN); btnHealth->setStyleSheet(bN); btnGame->setStyleSheet(bN); btnMovie->setStyleSheet(bN); btnOffice->setStyleSheet(bN); btnReading->setStyleSheet(bN); };
-        connect(btnOffice, &QPushButton::clicked, [=](){ rB(); btnOffice->setStyleSheet(bA); sliderBright->setValue(100); sliderWarm->setValue(0); });
-        connect(btnReading, &QPushButton::clicked, [=](){ rB(); btnReading->setStyleSheet(bA); sliderBright->setValue(85); sliderWarm->setValue(30); });
-        connect(btnHealth, &QPushButton::clicked, [=](){ rB(); btnHealth->setStyleSheet(bA); sliderBright->setValue(60); sliderWarm->setValue(75); });
-        connect(btnGame, &QPushButton::clicked, [=](){ rB(); btnGame->setStyleSheet(bA); sliderBright->setValue(90); sliderWarm->setValue(10); });
-        connect(btnMovie, &QPushButton::clicked, [=](){ rB(); btnMovie->setStyleSheet(bA); sliderBright->setValue(70); sliderWarm->setValue(40); });
-
+        connect(btnHealth, &QPushButton::clicked, [=](){ sliderBright->setValue(60); sliderWarm->setValue(75); });
+        connect(btnGame, &QPushButton::clicked, [=](){ sliderBright->setValue(90); sliderWarm->setValue(10); });
+        connect(btnMovie, &QPushButton::clicked, [=](){ sliderBright->setValue(70); sliderWarm->setValue(40); });
+        
         l->addStretch(); stack->addWidget(page);
     }
 
     void setupSettingsPage() {
         QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(50, 50, 50, 50);
         QLabel* title = new QLabel("Settings & Personalization"); title->setStyleSheet("font-size: 28px; font-weight: bold; margin-bottom: 20px;"); l->addWidget(title);
-        
         QFrame* card = createCard(); QVBoxLayout* cl = new QVBoxLayout(card); cl->setContentsMargins(40, 40, 40, 40);
         cl->addWidget(new QLabel("<b>App Theme:</b>"));
-        QCheckBox* chkDark = new QCheckBox(" Enable Dark Mode UI"); chkDark->setStyleSheet("font-size: 16px; padding: 15px; margin-top: 10px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;");
+        QCheckBox* chkDark = new QCheckBox(" Enable Dark Mode UI"); chkDark->setStyleSheet("font-size: 16px; padding: 15px; margin-top: 10px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; color: #1E293B;");
         chkDark->setChecked(isDarkMode); connect(chkDark, &QCheckBox::clicked, [=](bool c){ isDarkMode = c; applyTheme(); });
         cl->addWidget(chkDark); l->addWidget(card); l->addStretch(); stack->addWidget(page);
     }
@@ -736,15 +638,12 @@ private:
     void setupChatPage() {
         QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(40, 30, 40, 30);
         QLabel* title = new QLabel("💬 Live Support Chat"); title->setStyleSheet("font-size: 28px; font-weight: bold; color: #EC4899; margin-bottom: 15px;"); l->addWidget(title);
-        
         QFrame* card = createCard(); QVBoxLayout* cl = new QVBoxLayout(card); cl->setContentsMargins(25, 25, 25, 25); cl->setSpacing(15);
-        chatLog = new QTextEdit(); chatLog->setReadOnly(true); chatLog->setStyleSheet("border: 1px solid #E2E8F0; border-radius: 8px; background: #F8FAFC; padding: 15px; font-size: 15px;"); cl->addWidget(chatLog);
-        
+        chatLog = new QTextEdit(); chatLog->setReadOnly(true); chatLog->setStyleSheet("border: 1px solid #E2E8F0; border-radius: 8px; background: #F8FAFC; padding: 15px; font-size: 15px; color: #1E293B;"); cl->addWidget(chatLog);
         QHBoxLayout* ch = new QHBoxLayout();
         chatIn = new QLineEdit(); chatIn->setPlaceholderText("Type your message to Admin..."); ch->addWidget(chatIn);
         SmoothButton* bSend = new SmoothButton("Send Message"); bSend->setStyleSheet("background: #EC4899; color: white; padding: 12px 25px;"); ch->addWidget(bSend);
         cl->addLayout(ch); l->addWidget(card);
-        
         connect(bSend, &QPushButton::clicked, [=](){
             QString msg = chatIn->text().trimmed(); if(msg.isEmpty()) return;
             chatLog->append("<span style='color:#3B82F6;'><b>You:</b></span> " + msg); chatIn->clear();
@@ -758,16 +657,13 @@ private:
         QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(50, 40, 50, 40);
         QLabel* title = new QLabel("★ Premium Upgrade"); title->setStyleSheet("font-size: 30px; font-weight: bold; color: #F59E0B;"); l->addWidget(title);
         QLabel* sub = new QLabel("Unlock all features. Send payment via Nagad/bKash to <b>01566054963</b>"); sub->setStyleSheet("font-size: 16px; margin-bottom: 20px;"); l->addWidget(sub);
-        
         QFrame* card = createCard(); QVBoxLayout* fl = new QVBoxLayout(card); fl->setContentsMargins(40, 40, 40, 40); fl->setSpacing(20);
         fl->addWidget(new QLabel("<b>Email / Name:</b>")); upgEmail = new QLineEdit(); fl->addWidget(upgEmail);
         fl->addWidget(new QLabel("<b>Sender Number:</b>")); upgPhone = new QLineEdit(); fl->addWidget(upgPhone);
         fl->addWidget(new QLabel("<b>Transaction ID (TrxID):</b>")); upgTrx = new QLineEdit(); fl->addWidget(upgTrx);
         fl->addWidget(new QLabel("<b>Select Package:</b>")); upgPkg = new QComboBox(); upgPkg->addItems({"7 Days Trial", "6 Months (50 BDT)", "1 Year (100 BDT)"}); fl->addWidget(upgPkg);
-        
         SmoothButton* bSub = new SmoothButton("SUBMIT REQUEST"); bSub->setStyleSheet("background: #10B981; color: white; padding: 15px; margin-top: 15px; font-size: 16px;"); fl->addWidget(bSub);
         l->addWidget(card); l->addStretch(); stack->addWidget(page);
-        
         connect(bSub, &QPushButton::clicked, [=](){
             if(upgEmail->text().isEmpty() || upgPhone->text().isEmpty() || upgTrx->text().isEmpty()) { new ToastNotification("⚠️ Fill all fields!", this); return; }
             QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
@@ -782,6 +678,17 @@ private:
             QPixmap pix(32, 32); pix.fill(Qt::transparent); QPainter p(&pix); p.setRenderHint(QPainter::Antialiasing); p.setBrush(QColor("#3B82F6")); p.drawEllipse(2, 2, 28, 28); p.setPen(Qt::white); p.setFont(QFont("Segoe UI", 12, QFont::Bold)); p.drawText(pix.rect(), Qt::AlignCenter, "RF"); icon = QIcon(pix);
         }
         trayIcon = new QSystemTrayIcon(icon, this);
+        
+        QMenu* trayMenu = new QMenu(this);
+        QAction* showAct = new QAction("Show Dashboard", this);
+        connect(showAct, &QAction::triggered, this, [=]() { this->showNormal(); this->raise(); this->activateWindow(); });
+        QAction* quitAct = new QAction("Exit App", this);
+        connect(quitAct, &QAction::triggered, qApp, &QCoreApplication::quit);
+        trayMenu->addAction(showAct);
+        trayMenu->addSeparator();
+        trayMenu->addAction(quitAct);
+        trayIcon->setContextMenu(trayMenu);
+
         connect(trayIcon, &QSystemTrayIcon::activated, [=](QSystemTrayIcon::ActivationReason r){ if(r == QSystemTrayIcon::Trigger || r == QSystemTrayIcon::DoubleClick) { showNormal(); raise(); activateWindow(); } });
         trayIcon->show();
     }
@@ -813,13 +720,13 @@ private:
     }
 
     void SyncListsFromUI() {
-        auto getList = [](QListWidget* lw) { QStringList l; for(int i=0; i<lw->count(); ++i) { QWidget* widget = lw->itemWidget(lw->item(i)); if(widget) { QLabel* label = widget->findChild<QLabel*>(); if(label && label->text() != "No apps added yet." && label->text() != "No websites added yet.") l << label->text(); } } return l; };
+        auto getList = [](QListWidget* lw) { QStringList l; for(int i=0; i<lw->count(); ++i) { QWidget* widget = lw->itemWidget(lw->item(i)); if(widget) { QLabel* label = widget->findChild<QLabel*>(); if(label && label->text() != "No apps added." && label->text() != "No websites added.") l << label->text(); } } return l; };
         blockedApps = getList(listBlockApp); blockedWebs = getList(listBlockWeb); allowedApps = getList(listAllowApp); allowedWebs = getList(listAllowWeb); SaveAllData();
     }
 
     void LoadAllData() {
         auto lF = [&](QString fn, QStringList& l, QListWidget* lw, QString emptyMsg) { QFile f(GetSecretDir() + fn); if(f.open(QIODevice::ReadOnly|QIODevice::Text)) { QTextStream in(&f); while(!in.atEnd()) { QString v=in.readLine().trimmed(); if(!v.isEmpty()){ l<<v; addInlineItem(lw, v, emptyMsg); } } f.close(); } updateEmptyState(lw, emptyMsg); };
-        lF("bl_app.dat", blockedApps, listBlockApp, "No apps added yet."); lF("bl_web.dat", blockedWebs, listBlockWeb, "No websites added yet."); lF("al_app.dat", allowedApps, listAllowApp, "No apps added yet."); lF("al_web.dat", allowedWebs, listAllowWeb, "No websites added yet.");
+        lF("bl_app.dat", blockedApps, listBlockApp, "No apps added."); lF("bl_web.dat", blockedWebs, listBlockWeb, "No websites added."); lF("al_app.dat", allowedApps, listAllowApp, "No apps added."); lF("al_web.dat", allowedWebs, listAllowWeb, "No websites added.");
         listRunning->addItems(GetRunningAppsUI());
         QFile f(GetSecretDir() + "session.dat");
         if(f.open(QIODevice::ReadOnly|QIODevice::Text)) {
@@ -843,7 +750,7 @@ private:
 
     void ClearSessionData() {
         isSessionActive = isTimeMode = isPassMode = isPomodoroMode = isPomodoroBreak = false; currentSessionPass = ""; focusTimeTotalSeconds = timerTicks = pomoTicks = 0; pomoCurrentSession = 1;
-        dashProgress->updateProgress(0, "Ready"); lblStatus->setText(""); lblPomoStatus->setText("Status: Ready"); SaveAllData(); updateUIStates();
+        lblStatus->setText(""); SaveAllData(); updateUIStates();
     }
 
     void updateUIStates() {
@@ -851,18 +758,10 @@ private:
         
         if(isSessionActive) {
             lblStatus->setText("🔒 Focus is Active. Controls locked.");
-            if(isPassMode) {
-                editPass->setEnabled(true);
-                editPass->setStyleSheet("background: #FEF2F2; border: 2px solid #EF4444; color: #7F1D1D; font-weight: bold;");
-                editPass->setPlaceholderText("Enter password to unlock");
-            } else {
-                editPass->setEnabled(false);
-            }
+            if(isPassMode) { editPass->setEnabled(true); editPass->setStyleSheet("background: #FEF2F2; border: 2px solid #EF4444; color: #7F1D1D; font-weight: bold;"); editPass->setPlaceholderText("Enter password"); } else { editPass->setEnabled(false); }
         } else {
             lblStatus->setText("");
-            editPass->setEnabled(true);
-            editPass->setStyleSheet(isDarkMode ? "background: #0F172A; border: 1px solid #334155; color: #F8FAFC;" : "background: #F1F5F9; border: 1px solid #E2E8F0; color: #1E293B;");
-            editPass->setPlaceholderText("Friend sets this");
+            editPass->setEnabled(true); editPass->setStyleSheet(isDarkMode ? "background: #0F172A; border: 1px solid #334155; color: #F8FAFC;" : "background: #F1F5F9; border: 1px solid #E2E8F0; color: #1E293B;"); editPass->setPlaceholderText("Friend sets this");
         }
     }
 
@@ -926,10 +825,10 @@ private:
             if(isPomodoroMode) { pomoTicks++; if(pomoTicks%5==0) SaveAllData();
                 if(!isPomodoroBreak && pomoTicks >= pomoLengthMin*60) { isPomodoroBreak=true; pomoTicks=0; QString p = GetSecretDir() + "pomodoro_break.html"; QFile f(p); if(f.open(QIODevice::WriteOnly)){ QTextStream out(&f); out<<"<html><body style='background:#1e3c72; color:white; text-align:center; padding-top:100px; font-family:sans-serif;'><h1>Time to Relax & Drink Water!</h1><p>Break Started.</p></body></html>"; f.close(); } QDesktopServices::openUrl(QUrl::fromLocalFile(p)); }
                 else if(isPomodoroBreak && pomoTicks >= 2*60) { isPomodoroBreak=false; pomoTicks=0; pomoCurrentSession++; if(pomoCurrentSession > pomoTotalSessions) { ClearSessionData(); new ToastNotification("✅ Pomodoro Complete!", this); } }
-                int totalMins = isPomodoroBreak ? 2 : pomoLengthMin; int l = (totalMins*60)-pomoTicks; if(l<0) l=0; int prog = 100 - ((l * 100) / (totalMins * 60)); QString st = isPomodoroBreak ? "Break" : QString("Focus %1/%2").arg(pomoCurrentSession).arg(pomoTotalSessions); QString tt = QString("%1: %2:%3").arg(st).arg(l/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0'));
-                dashProgress->updateProgress(prog, QString("%1:%2").arg(l/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0'))); lblPomoStatus->setText(tt); trayIcon->setToolTip(tt);
-            } else if(isTimeMode) { timerTicks++; int left = focusTimeTotalSeconds - timerTicks; if(left <= 0) { ClearSessionData(); new ToastNotification("✅ Focus Time Over!", this); return; } int prog = 100 - ((left * 100) / focusTimeTotalSeconds); QString tt = QString("%1:%2:%3").arg(left/3600, 2, 10, QChar('0')).arg((left%3600)/60, 2, 10, QChar('0')).arg(left%60, 2, 10, QChar('0')); dashProgress->updateProgress(prog, tt); trayIcon->setToolTip("Time Left: " + tt);
-            } else { dashProgress->updateProgress(100, "Locked"); trayIcon->setToolTip("Focus Active (Password)"); }
+                int totalMins = isPomodoroBreak ? 2 : pomoLengthMin; int l = (totalMins*60)-pomoTicks; if(l<0) l=0; QString st = isPomodoroBreak ? "Break" : QString("Focus %1/%2").arg(pomoCurrentSession).arg(pomoTotalSessions); QString tt = QString("%1: %2:%3").arg(st).arg(l/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0'));
+                trayIcon->setToolTip(tt);
+            } else if(isTimeMode) { timerTicks++; int left = focusTimeTotalSeconds - timerTicks; if(left <= 0) { ClearSessionData(); new ToastNotification("✅ Focus Time Over!", this); return; } QString tt = QString("%1:%2:%3").arg(left/3600, 2, 10, QChar('0')).arg((left%3600)/60, 2, 10, QChar('0')).arg(left%60, 2, 10, QChar('0')); trayIcon->setToolTip("Time Left: " + tt);
+            } else { trayIcon->setToolTip("Focus Active (Password)"); }
             
             HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); PROCESSENTRY32W pe = {sizeof(pe)}; DWORD myPid = GetCurrentProcessId();
             if(Process32FirstW(h, &pe)) { do { if(pe.th32ProcessID == myPid) continue; QString n = QString::fromWCharArray(pe.szExeFile).toLower(); if(n == "taskmgr.exe") { HANDLE ph = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID); if(ph) { TerminateProcess(ph, 1); CloseHandle(ph); } continue; }
@@ -941,9 +840,9 @@ private:
 
     void syncLoop() { 
         ValidateLicenseAndTrial(); SyncLiveTrackerToFirebase(); 
-        if (isTrialExpired) { lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 20px;"); stack->setEnabled(false); if(!isSessionActive) { QMessageBox::critical(this, "Expired", "License Expired! Please upgrade to continue.", QMessageBox::Ok); stack->setEnabled(true); sidebar->setCurrentRow(7); } }
-        else if (isLicenseValid) { lblLicense->setText(QString("PREMIUM: %1 DAYS").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: green; font-weight: bold; margin-left: 20px;"); stack->setEnabled(true); if(sidebar->count() > 7) sidebar->item(7)->setHidden(true); }
-        else { lblLicense->setText(QString("TRIAL: %1 DAYS").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: orange; font-weight: bold; margin-left: 20px;"); stack->setEnabled(true); }
+        if (isTrialExpired) { lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 20px;"); stack->setEnabled(false); if(!isSessionActive) { QMessageBox::critical(this, "Expired", "License Expired! Please upgrade to continue.", QMessageBox::Ok); stack->setEnabled(true); sidebar->setCurrentRow(6); } }
+        else if (isLicenseValid) { lblLicense->setText(QString("PREMIUM: %1 DAYS").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: green; font-weight: bold; margin-left: 20px;"); stack->setEnabled(true); if(sidebar->count() > 6) sidebar->item(6)->setHidden(true); }
+        else { lblLicense->setText(QString("TRIAL: %1 DAYS").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: #F59E0B; font-weight: bold; margin-left: 20px;"); stack->setEnabled(true); }
         if(!safeAdminMsg.isEmpty()) lblAdminMsg->setText("Admin Notice: " + safeAdminMsg); else lblAdminMsg->setText("");
         if(!pendingAdminChatStr.isEmpty()) { chatLog->append("<span style='color:#EC4899;'><b>Admin:</b></span> " + pendingAdminChatStr); pendingAdminChatStr = ""; }
         if(!pendingBroadcastMsg.isEmpty() && pendingBroadcastMsg != "ACK") { currentBroadcastMsg = pendingBroadcastMsg; pendingBroadcastMsg = ""; QMessageBox::information(this, "Admin Broadcast", currentBroadcastMsg); QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=broadcastMsg&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ broadcastMsg = @{ stringValue = 'ACK' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
@@ -954,11 +853,40 @@ private:
 };
 
 int main(int argc, char *argv[]) {
-    if (!IsRunAsAdmin()) { QString args = ""; for(int i=1; i<argc; i++) args += QString(argv[i]) + " "; RequestAdminAndRestart(args); }
-    HWND hExisting = FindWindowW(NULL, L"RasFocus Pro - Dashboard"); if (hExisting) { ShowWindow(hExisting, SW_RESTORE); SetForegroundWindow(hExisting); return 0; }
-    SetupAutoStart(); hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
-    QApplication app(argc, argv); QApplication::setQuitOnLastWindowClosed(false); app.setFont(QFont("Segoe UI", 12)); 
-    RasFocusApp window; QString cmdStr = ""; for(int i=1; i<argc; i++) cmdStr += argv[i];
-    if(cmdStr.contains("-autostart")) { window.hide(); } else { window.showNormal(); window.raise(); window.activateWindow(); }
-    int ret = app.exec(); UnhookWindowsHookEx(hKeyboardHook); return ret;
+    // Single Instance Implementation using QSharedMemory
+    QSharedMemory sharedMemory("RasFocusProInstance");
+    if (!sharedMemory.create(1)) {
+        // App is already running. Find the existing window and bring it to front.
+        HWND hExisting = FindWindowW(NULL, L"RasFocus Pro");
+        if (hExisting) { 
+            ShowWindow(hExisting, SW_RESTORE); 
+            SetForegroundWindow(hExisting); 
+        }
+        return 0; 
+    }
+
+    SetupAutoStart(); 
+    hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
+    
+    QApplication app(argc, argv); 
+    QApplication::setQuitOnLastWindowClosed(false); 
+    app.setFont(QFont("Segoe UI", 11)); 
+    
+    RasFocusApp window; 
+    window.setWindowTitle("RasFocus Pro"); // Setting title explicitly for FindWindowW
+    
+    QString cmdStr = ""; 
+    for(int i=1; i<argc; i++) cmdStr += argv[i];
+    
+    if(cmdStr.contains("-autostart")) { 
+        window.hide(); 
+    } else { 
+        window.showNormal(); 
+        window.raise(); 
+        window.activateWindow(); 
+    }
+    
+    int ret = app.exec(); 
+    UnhookWindowsHookEx(hKeyboardHook); 
+    return ret;
 }
