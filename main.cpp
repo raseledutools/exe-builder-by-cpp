@@ -1,204 +1,134 @@
-#include <QApplication>
-#include <QMainWindow>
-#include <QWidget>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QGridLayout>
-#include <QLabel>
-#include <QPushButton>
-#include <QListWidget>
-#include <QLineEdit>
-#include <QComboBox>
-#include <QCheckBox>
-#include <QRadioButton>
-#include <QButtonGroup>
-#include <QSpinBox>
-#include <QTimer>
-#include <QSystemTrayIcon>
-#include <QMenu>
-#include <QMessageBox>
-#include <QProcess>
-#include <QDir>
-#include <QFile>
-#include <QTextStream>
-#include <QDesktopServices>
-#include <QUrl>
-#include <QScreen>
-#include <QFontDatabase>
-#include <QCloseEvent>
-#include <QStackedWidget>
-#include <QSlider>
-#include <QTextEdit>
-#include <QPainter>
-#include <QPainterPath>
-#include <QPixmap>
-#include <QStyle>
-#include <QMap>
-#include <QElapsedTimer>
-#include <QFrame>
-#include <QMouseEvent>
-#include <QPropertyAnimation>
-#include <QGraphicsOpacityEffect>
-#include <QGraphicsDropShadowEffect>
-#include <QSizeGrip>
-#include <QSharedMemory> 
-
-// Windows API
 #include <windows.h>
 #include <tlhelp32.h>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <algorithm>
+#include <commctrl.h>
+#include <shellapi.h>
+#include <time.h>
+#include <dwmapi.h>
 #include <wininet.h>
 #include <shlobj.h>
-#include <objbase.h>
-#include <mmsystem.h> 
 
-#pragma comment(lib, "wininet.lib")
+#pragma comment(linker,"\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #pragma comment(lib, "dwmapi.lib")
-#pragma comment(lib, "ole32.lib")
-#pragma comment(lib, "winmm.lib") 
+#pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "wininet.lib")
 
 using namespace std;
 
-extern void ToggleAdBlock(bool enable); 
+#define WM_TRAYICON (WM_USER + 1)
+#define WM_WAKEUP (WM_USER + 2) 
 
-// ==========================================
-// GLOBALS & DATA
-// ==========================================
-QStringList blockedApps, blockedWebs, allowedApps, allowedWebs;
-QStringList systemApps = { "explorer.exe", "svchost.exe", "taskmgr.exe", "cmd.exe", "conhost.exe", "csrss.exe", "dwm.exe", "lsass.exe", "services.exe", "smss.exe", "wininit.exe", "winlogon.exe", "spoolsv.exe", "fontdrvhost.exe", "searchui.exe", "searchindexer.exe", "sihost.exe", "taskhostw.exe", "ctfmon.exe", "applicationframehost.exe", "system", "registry", "audiodg.exe", "searchapp.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "textinputhost.exe" };
-QStringList commonThirdPartyApps = { "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "yandex.exe", "safari.exe", "code.exe", "pycharm64.exe", "python.exe", "idea64.exe", "studio64.exe", "vlc.exe", "telegram.exe", "whatsapp.exe", "discord.exe", "zoom.exe", "skype.exe", "obs64.exe", "steam.exe", "winword.exe", "excel.exe", "powerpnt.exe", "notepad.exe", "spotify.exe" };
-QStringList explicitKeywords = { "porn", "xxx", "sex", "nude", "nsfw", "xvideos", "pornhub", "xnxx", "xhamster", "brazzers", "onlyfans", "playboy", "mia khalifa", "bhabi", "chudai", "bangla choti", "magi", "sexy" };
-QStringList safeBrowserTitles = { "new tab", "start", "blank page", "allowed websites", "loading", "untitled", "connecting", "pomodoro break" };
+// UI IDs
+#define ID_RADIO_BLOCK 101
+#define ID_RADIO_ALLOW 102
+#define ID_BTN_ADD_ALLOW_APP 103
+#define ID_BTN_REM_ALLOW_APP 104
+#define ID_BTN_ADD_ALLOW_WEB 105
+#define ID_BTN_REM_ALLOW_WEB 106
+#define ID_BTN_STOP_FOCUS 107
+#define ID_BTN_START_FOCUS 1
+#define ID_BTN_ADD_APP 2
+#define ID_BTN_REM_APP 4
+#define ID_BTN_ADD_WEB 6
+#define ID_BTN_REM_WEB 8
+#define ID_BTN_ADD_RUNNING 10
+#define ID_BTN_USER_GUIDE 108
+#define ID_BTN_POMODORO 109
+#define ID_BTN_EYE_CURE 110
+#define ID_BTN_UPGRADE 111
+#define ID_BTN_SUBMIT_UPGRADE 301
+#define ID_CHK_ADBLOCK 112
+#define ID_BTN_LIVE_CHAT 113
+#define ID_BTN_SEND_CHAT 302
+#define ID_BTN_SAVE_PROFILE 114
+#define ID_CHK_REELS 115
+#define ID_CHK_SHORTS 116
+#define ID_BTN_CLOSE_BROADCAST 117
+#define ID_BTN_START_POMO 401
+#define ID_BTN_STOP_POMO 402
+#define ID_BTN_STOPWATCH 118
 
-QStringList islamicQuotes = { "\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং গঠনমূলক কাজ করুন।\" - (সূরা আন-নূর: ৩০)", "\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে না।\" - (সহীহ বুখারী)" };
-QStringList timeQuotes = { "\"যারা সময়কে মূল্যায়ন করে না, সময়ও তাদেরকে মূল্যায়ন করে না।\" - এ.পি.জে. আবদুল কালাম" };
+// Globals
+HWND hMainWnd, hOverlay, hDimFilter, hWarmFilter, hEyePanel, hUpgradePanel, hLiveChatPanel, hBroadcastPanel, hPomodoroPanel, hExpiredPanel, hStopwatchWnd;
+HWND hLblTimeLeft, hPassEdit, hTimeHrEdit, hTimeMinEdit, hBtnStart, hBtnStopFocus, hBtnUserGuide, hBtnEyeCure, hBtnPomodoro, hBtnStopwatch, hChkAdBlock, hChkReels, hChkShorts, hBtnUpgrade, hLblTrialStatus, hLblAdminMsg;
+HWND hEditProfileName, hChatLogEdit, hChatInputEdit, hEditEmail, hEditPhone, hEditTrx, hComboPkg, hLblFocusStatus;
+HWND hRadioBlock, hRadioAllow, hAppInput, hComboApp, hBtnAddApp, hAppList, hBtnRemApp, hWebInput, hComboWeb, hBtnAddWeb, hWebList, hBtnRemWeb, hAllowAppInput, hComboAllowApp, hBtnAddAllowApp, hAllowAppList, hBtnRemAllowApp, hAllowWebInput, hComboAllowWeb, hBtnAddAllowWeb, hAllowWebList, hBtnRemAllowWeb, hRunningList, hBtnAddFromRunning;
+HWND hPomoMinEdit, hPomoSessionEdit, hLblPomoStatus;
 
-bool isSessionActive = false, isTimeMode = false, isPassMode = false, useAllowMode = false, isOverlayVisible = false;
-bool blockReels = false, blockShorts = false, isAdblockActive = false, isDarkMode = false;
-bool blockAdult = true; 
-bool isPomodoroMode = false, isPomodoroBreak = false, userClosedExpired = false;
+// Stopwatch vars
+HWND hSwTxt, hBtnSwStart, hBtnSwReset;
+bool swRunning = false; DWORD swStart = 0, swElapsed = 0;
 
-int eyeBrightness = 100, eyeWarmth = 0, focusTimeTotalSeconds = 0, timerTicks = 0;
+bool isSessionActive = false, isTimeMode = false, isPassMode = false, useAllowMode = false, isOverlayVisible = false; 
+bool blockReels = false, blockShorts = false, isAdblockActive = false, blockAdult = false; 
+bool isPomodoroMode = false, isPomodoroBreak = false;
+bool userClosedExpired = false; 
+
+int currentOverlayType = 1, eyeBrightness = 100, eyeWarmth = 0, focusTimeTotalSeconds = 0, timerTicks = 0;
 int pomoLengthMin = 25, pomoTotalSessions = 4, pomoCurrentSession = 1, pomoTicks = 0;
 
-QString currentSessionPass = "", userProfileName = "", safeAdminMsg = "", currentDisplayQuote = "";
-QString lastAdminChat = "", pendingAdminChatStr = "", currentBroadcastMsg = "", pendingBroadcastMsg = "";
+string currentSessionPass = "", userProfileName = "", adminMessage = "", pendingAdminPass = "", lastAdminChat = "", currentBroadcastMsg = "";
+string pendingAdminChatStr = ""; 
+string pendingBroadcastMsg = ""; 
+string lastSeenBroadcastMsg = ""; 
+string safeAdminMsg = ""; 
 bool isLicenseValid = false, isTrialExpired = false;
-int trialDaysLeft = 7, pendingAdminCmd = 0;
-
-QLabel *dimFilterWidget = nullptr;
-QLabel *warmFilterWidget = nullptr;
-QWidget *overlayWidget = nullptr;
-QLabel *overlayLabel = nullptr;
-QTimer *overlayHideTimer = nullptr;
+int trialDaysLeft = 7, pendingAdminCmd = 0; 
+NOTIFYICONDATA nid;
 HHOOK hKeyboardHook;
-QString globalKeyBuffer = "";
+string globalKeyBuffer = "";
 
-QMap<QString, int> usageStats;
-DWORD lastUsageUpdate = 0;
+COLORREF colBg = RGB(248, 250, 252), colTextDark = RGB(15, 23, 42);
+COLORREF colBtnBlue = RGB(37, 99, 235), colBtnGreen = RGB(16, 185, 129), colBtnRed = RGB(239, 68, 68), colBtnGray = RGB(100, 116, 139), colBtnTeal = RGB(13, 148, 136), colBtnPurple = RGB(139, 92, 246), colBtnGold = RGB(245, 158, 11);
+COLORREF colOverlayAdultBg = RGB(9, 61, 31), colOverlayTimeBg = RGB(26, 37, 47), colOverlayText = RGB(255, 255, 255);
+HBRUSH hbrBg; 
 
-const QString MUTEX_NAME = "RasFocusPro_SingleInstance_Mutex";
-const UINT WM_WAKEUP = RegisterWindowMessageA("RasFocusPro_Wakeup");
+vector<string> blockedApps, blockedWebs, allowedApps, allowedWebs;
+vector<string> systemApps = {"explorer.exe", "svchost.exe", "taskmgr.exe", "cmd.exe", "conhost.exe", "csrss.exe", "dwm.exe", "lsass.exe", "services.exe", "smss.exe", "wininit.exe", "winlogon.exe", "spoolsv.exe", "fontdrvhost.exe", "searchui.exe", "searchindexer.exe", "sihost.exe", "taskhostw.exe", "ctfmon.exe", "applicationframehost.exe", "system", "registry", "audiodg.exe", "searchapp.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "textinputhost.exe"};
+vector<string> commonThirdPartyApps = {"chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "yandex.exe", "safari.exe", "waterfox.exe", "code.exe", "pycharm64.exe", "python.exe", "idea64.exe", "studio64.exe", "vlc.exe", "telegram.exe", "whatsapp.exe", "discord.exe", "zoom.exe", "skype.exe", "obs64.exe", "steam.exe", "epicgameslauncher.exe", "winword.exe", "excel.exe", "powerpnt.exe", "notepad.exe", "spotify.exe"};
+vector<string> explicitKeywords = {"porn", "xxx", "sex", "nude", "nsfw", "xvideos", "pornhub", "xnxx", "xhamster", "brazzers", "onlyfans", "playboy", "mia khalifa", "bhabi", "chudai", "bangla choti", "magi", "sexy"};
+vector<string> safeBrowserTitles = {"new tab", "start", "blank page", "allowed websites focus mode", "loading", "untitled", "connecting", "pomodoro break", "premium upgrade"};
+vector<wstring> islamicQuotes = { L"\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং তাদের যৌনাঙ্গর হেফাযত করে।\" - (সূরা আন-নূর: ৩০)", L"\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে না।\" - (সহীহ বুখারী)" };
+vector<wstring> timeQuotes = { L"\"যারা সময়কে মূল্যায়ন করে না, সময়ও তাদেরকে মূল্যায়ন করে না।\" - এ.পি.জে. আবদুল কালাম" };
+wstring currentDisplayQuote = L"";
 
-// ==========================================
-// AUDIO PLAYBACK UTILITY
-// ==========================================
-void ManageFocusSound(bool start) {
-    if (start) {
-        QString audioPath = QCoreApplication::applicationDirPath() + "/focus_noise.mp3";
-        if (QFile::exists(audioPath)) {
-            QString cmdOpen = "open \"" + audioPath + "\" type mpegvideo alias focusSound";
-            mciSendStringA(cmdOpen.toStdString().c_str(), NULL, 0, NULL);
-            mciSendStringA("play focusSound repeat", NULL, 0, NULL); 
-        }
-    } else {
-        mciSendStringA("stop focusSound", NULL, 0, NULL);
-        mciSendStringA("close focusSound", NULL, 0, NULL);
-    }
+extern void ToggleAdBlock(bool enable); 
+
+void SetupAutoStart(); void CreateDesktopShortcut(); void SyncLiveTrackerToFirebase(); void SyncTogglesToFirebase(); void SyncProfileNameToFirebase(string name); void SyncPasswordToFirebase(string pass, bool isLocking); void RegisterDeviceToFirebase(string deviceId); void ValidateLicenseAndTrial(); void ApplyEyeFilters(); void SaveSessionData(); void LoadSessionData(); void ClearSessionData(); void UpdateTimerDisplay(); 
+// EnforceFocusMode দুই ভাগে ভাগ করা হয়েছে ফাস্ট পারফরম্যান্সের জন্য
+void EnforceFocusMode_Processes(); void EnforceFocusMode_Window(); 
+void ShowPomodoroBreakPage(); void ShowAllowedWebsitesPage(); void SelectRandomQuote(int type); void CheckAlwaysOnAdultFilter(); void CloseActiveTabAndMinimize(HWND hBrowser); bool CheckMatch(string url, string sTitle); string GenerateDisplayURL(string url); string EnsureExe(string name); bool CheckSingleInstance(); string GetDeviceID(); void ShowUserGuide(); void LoadData(); void SaveData(); vector<string> GetAppListForUI(); void ToggleUIElements(bool enable); void UpdateMainUIState();
+
+string GetSecretDir() {
+    string dir = "C:\\ProgramData\\SysCache_Ras";
+    CreateDirectoryA(dir.c_str(), NULL);
+    SetFileAttributesA(dir.c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
+    return dir + "\\";
 }
+string GetSessionFilePath() { return GetSecretDir() + "session.dat"; }
 
-// ==========================================
-// UTILITY FUNCTIONS
-// ==========================================
-
-void runPowerShell(QString cmdBody) {
-    QProcess::startDetached("powershell.exe", QStringList() << "-WindowStyle" << "Hidden" << "-Command" << cmdBody);
-}
-
-QString GetDeviceID() {
-    char compName[MAX_COMPUTERNAME_LENGTH + 1]; DWORD size = sizeof(compName); GetComputerNameA(compName, &size);
-    DWORD volSerial = 0; GetVolumeInformationA("C:\\", NULL, 0, &volSerial, NULL, NULL, NULL, 0);
-    char id[256]; sprintf(id, "%s-%X", compName, volSerial); return QString(id);
-}
-
-QString GetSecretDir() {
-    QString dir = QDir::homePath() + "/AppData/Local/RasFocusPro"; 
-    QDir().mkpath(dir);
-    SetFileAttributesA(dir.toStdString().c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
-    return dir + "/";
-}
-
-bool CheckMatch(QString url, QString sTitle) { 
-    QString t = sTitle.remove(' '); QString exact = url.toLower().remove(' '); 
-    if (!exact.isEmpty() && t.contains(exact)) return true; 
-    QString s = url.toLower(); s.replace('.', ' ').replace('/', ' ').replace(':', ' ').replace('-', ' '); 
-    QStringList words = s.split(' ', Qt::SkipEmptyParts); 
-    for(const QString& word : words) { 
-        if (word == "https" || word == "http" || word == "www" || word == "com" || word == "org" || word == "net" || word == "html") continue; 
-        if (word.length() >= 3 && t.contains(word)) return true; 
-    } 
-    return false; 
-}
-
-void CloseActiveTabAndMinimize(HWND hBrowser) {
-    if (GetForegroundWindow() == hBrowser) {
-        keybd_event(VK_CONTROL, 0, 0, 0); keybd_event('W', 0, 0, 0);
-        keybd_event('W', 0, KEYEVENTF_KEYUP, 0); keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
-        Sleep(150); 
-    }
-    ShowWindow(hBrowser, SW_MINIMIZE);
-}
-
-void SelectRandomQuote(int type) {
-    if (type == 1) currentDisplayQuote = islamicQuotes[rand() % islamicQuotes.size()];
-    else currentDisplayQuote = timeQuotes[rand() % timeQuotes.size()];
-}
-
-void ShowCustomOverlay(int type) {
-    if(!overlayWidget) {
-        overlayWidget = new QWidget();
-        overlayWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
-        overlayWidget->setAttribute(Qt::WA_TranslucentBackground);
-        overlayWidget->resize(850, 350); 
-        
-        QVBoxLayout* l = new QVBoxLayout(overlayWidget);
-        QWidget* bg = new QWidget(); bg->setObjectName("bg");
-        QVBoxLayout* bl = new QVBoxLayout(bg); bl->setContentsMargins(40, 40, 40, 40); 
-        
-        overlayLabel = new QLabel(); overlayLabel->setAlignment(Qt::AlignCenter); overlayLabel->setWordWrap(true);
-        overlayLabel->setFont(QFont("Segoe UI", 28, QFont::Bold)); overlayLabel->setStyleSheet("color: white;");
-        bl->addWidget(overlayLabel); l->addWidget(bg);
-        
-        overlayHideTimer = new QTimer();
-        QObject::connect(overlayHideTimer, &QTimer::timeout, [](){ overlayWidget->hide(); isOverlayVisible = false; overlayHideTimer->stop(); });
-    }
-    SelectRandomQuote(type); overlayLabel->setText(currentDisplayQuote);
-    if(type == 1) overlayWidget->setStyleSheet("#bg { background-color: #093d1f; border: 6px solid #f1c40f; border-radius: 20px; }");
-    else overlayWidget->setStyleSheet("#bg { background-color: #1a252f; border: 6px solid #3498db; border-radius: 20px; }");
-    QRect screenRect = QGuiApplication::primaryScreen()->geometry();
-    overlayWidget->move((screenRect.width() - overlayWidget->width()) / 2, (screenRect.height() - overlayWidget->height()) / 2);
-    isOverlayVisible = true; overlayWidget->show(); overlayHideTimer->start(6000);
+int GetTotalDaysForPackage(string pkg) {
+    if (pkg.find("1 Year") != string::npos) return 365;
+    if (pkg.find("6 Months") != string::npos) return 180;
+    return 7; 
 }
 
 LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (!blockAdult && !isSessionActive) return CallNextHookEx(hKeyboardHook, nCode, wParam, lParam); 
+    if (!blockAdult) return CallNextHookEx(hKeyboardHook, nCode, wParam, lParam); 
     if (nCode >= 0 && wParam == WM_KEYDOWN) {
         KBDLLHOOKSTRUCT* kbdStruct = (KBDLLHOOKSTRUCT*)lParam; char c = MapVirtualKey(kbdStruct->vkCode, MAPVK_VK_TO_CHAR);
         if (c >= 32 && c <= 126) {
-            globalKeyBuffer += tolower(c); if (globalKeyBuffer.length() > 50) globalKeyBuffer.remove(0, 1);
-            for (const QString& kw : explicitKeywords) {
-                if (globalKeyBuffer.contains(kw)) {
+            globalKeyBuffer += tolower(c); if (globalKeyBuffer.length() > 50) globalKeyBuffer.erase(0, 1);
+            for (const auto& kw : explicitKeywords) {
+                if (globalKeyBuffer.find(kw) != string::npos) {
                     globalKeyBuffer = ""; HWND hActive = GetForegroundWindow(); if(hActive) SendMessage(hActive, WM_CLOSE, 0, 0);
-                    QMetaObject::invokeMethod(qApp, [=](){ ShowCustomOverlay(1); }, Qt::QueuedConnection); break;
+                    currentOverlayType = 1; SelectRandomQuote(1); isOverlayVisible = true;
+                    ShowWindow(hOverlay, SW_SHOWNOACTIVATE); SetWindowPos(hOverlay, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                    SetTimer(hOverlay, 2, 6000, NULL); InvalidateRect(hOverlay, NULL, TRUE); break;
                 }
             }
         }
@@ -206,828 +136,1012 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(hKeyboardHook, nCode, wParam, lParam);
 }
 
-void ApplyEyeFilters() {
-    if(!dimFilterWidget) {
-        dimFilterWidget = new QLabel(); dimFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint | Qt::WindowTransparentForInput);
-        dimFilterWidget->setAttribute(Qt::WA_TranslucentBackground); dimFilterWidget->setAttribute(Qt::WA_TransparentForMouseEvents); dimFilterWidget->setGeometry(QGuiApplication::primaryScreen()->virtualGeometry());
-    }
-    if(!warmFilterWidget) {
-        warmFilterWidget = new QLabel(); warmFilterWidget->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint | Qt::WindowTransparentForInput);
-        warmFilterWidget->setAttribute(Qt::WA_TranslucentBackground); warmFilterWidget->setAttribute(Qt::WA_TransparentForMouseEvents); warmFilterWidget->setGeometry(QGuiApplication::primaryScreen()->virtualGeometry());
-    }
-    int dimAlpha = (100 - eyeBrightness) * 2.55; if(dimAlpha < 0) dimAlpha = 0; if(dimAlpha > 240) dimAlpha = 240;
-    if(dimAlpha > 0) { dimFilterWidget->setStyleSheet(QString("background-color: rgba(0, 0, 0, %1);").arg(dimAlpha)); dimFilterWidget->show(); } else { dimFilterWidget->hide(); }
-    int warmAlpha = eyeWarmth * 1.5; if(warmAlpha < 0) warmAlpha = 0; if(warmAlpha > 180) warmAlpha = 180;
-    if(warmAlpha > 0) { warmFilterWidget->setStyleSheet(QString("background-color: rgba(255, 130, 0, %1);").arg(warmAlpha)); warmFilterWidget->show(); } else { warmFilterWidget->hide(); }
+bool CheckSingleInstance() {
+    HANDLE hMutex = CreateMutexA(NULL, TRUE, "RasFocusPro_Mutex_V55");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) { HWND hExisting = FindWindowA("FocusApp", NULL); if (hExisting) { PostMessage(hExisting, WM_WAKEUP, 0, 0); } return false; }
+    return true;
 }
 
-void SetupAutoStart() {
-    char p[MAX_PATH]; GetModuleFileNameA(NULL, p, MAX_PATH);
-    QString pathWithArg = "\"" + QString(p) + "\" -autostart";
+void CreateDesktopShortcut() {
+    char exePath[MAX_PATH]; GetModuleFileName(NULL, exePath, MAX_PATH);
+    char desktopPath[MAX_PATH]; SHGetFolderPath(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, desktopPath);
+    string shortcutPath = string(desktopPath) + "\\RasFocus Pro.lnk";
+    
+    ifstream f(shortcutPath.c_str());
+    if (!f.good()) {
+        CoInitialize(NULL); IShellLink* psl;
+        if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (LPVOID*)&psl))) {
+            psl->SetPath(exePath); psl->SetDescription("Launch RasFocus Pro");
+            psl->SetIconLocation(exePath, 0); 
+            IPersistFile* ppf;
+            if (SUCCEEDED(psl->QueryInterface(IID_IPersistFile, (LPVOID*)&ppf))) {
+                WCHAR wsz[MAX_PATH]; MultiByteToWideChar(CP_ACP, 0, shortcutPath.c_str(), -1, wsz, MAX_PATH); ppf->Save(wsz, TRUE); ppf->Release();
+            } psl->Release();
+        } CoUninitialize();
+    }
+}
+
+string GetDeviceID() {
+    char compName[MAX_COMPUTERNAME_LENGTH + 1]; DWORD size = sizeof(compName); GetComputerNameA(compName, &size);
+    DWORD volSerial = 0; GetVolumeInformationA("C:\\", NULL, 0, &volSerial, NULL, NULL, NULL, 0);
+    char id[256]; sprintf(id, "%s-%X", compName, volSerial); return string(id);
+}
+
+void SelectRandomQuote(int type) { srand((unsigned int)time(0)); if (type == 1) currentDisplayQuote = islamicQuotes[rand() % islamicQuotes.size()]; else currentDisplayQuote = timeQuotes[rand() % timeQuotes.size()]; }
+
+void CloseActiveTabAndMinimize(HWND hBrowser) { 
+    if (GetForegroundWindow() == hBrowser) {
+        keybd_event(VK_CONTROL,0,0,0); keybd_event('W',0,0,0); 
+        keybd_event('W',0,KEYEVENTF_KEYUP,0); keybd_event(VK_CONTROL,0,KEYEVENTF_KEYUP,0); 
+        Sleep(50); 
+    }
+    ShowWindow(hBrowser, SW_MINIMIZE); 
+}
+
+void UpdateMainUIState() {
+    if (isSessionActive) {
+        EnableWindow(hBtnStart, FALSE); 
+        EnableWindow(hBtnStopFocus, TRUE);
+        SetWindowText(hLblFocusStatus, "Focus is Active. For deactivate write password and click ok or contact developer in live chat.");
+        InvalidateRect(hMainWnd, NULL, TRUE); 
+    } else {
+        EnableWindow(hBtnStart, TRUE); 
+        EnableWindow(hBtnStopFocus, FALSE);
+        SetWindowText(hLblFocusStatus, "");
+        InvalidateRect(hMainWnd, NULL, TRUE);
+    }
+}
+
+bool HandleSettingsWarning() {
+    if (isSessionActive) {
+        MessageBox(hMainWnd, "You cannot change settings while Focus is active.", "Warning", MB_ICONWARNING);
+        return true;
+    }
+    return false;
+}
+
+void ToggleUIElements(bool enable) {
+    if (isSessionActive && enable) return; 
+    if (!isSessionActive && !enable) return;
+
+    EnableWindow(hRadioBlock, enable); EnableWindow(hRadioAllow, enable); 
+    EnableWindow(hBtnPomodoro, enable);
+    
+    bool eBlock = enable && !useAllowMode;
+    bool eAllow = enable && useAllowMode;
+    
+    EnableWindow(hAppInput, eBlock); EnableWindow(hComboApp, eBlock); EnableWindow(hBtnAddApp, eBlock); EnableWindow(hBtnRemApp, eBlock);
+    EnableWindow(hWebInput, eBlock); EnableWindow(hComboWeb, eBlock); EnableWindow(hBtnAddWeb, eBlock); EnableWindow(hBtnRemWeb, eBlock);
+    
+    EnableWindow(hAllowAppInput, eAllow); EnableWindow(hComboAllowApp, eAllow); EnableWindow(hBtnAddAllowApp, eAllow); EnableWindow(hBtnRemAllowApp, eAllow);
+    EnableWindow(hAllowWebInput, eAllow); EnableWindow(hComboAllowWeb, eAllow); EnableWindow(hBtnAddAllowWeb, eAllow); EnableWindow(hBtnRemAllowWeb, eAllow);
+
+    UpdateMainUIState();
+}
+
+void SaveSessionData() { 
+    ofstream f(GetSessionFilePath()); 
+    if(f.is_open()) { f << (isSessionActive?1:0) << endl << (isTimeMode?1:0) << endl << (isPassMode?1:0) << endl << currentSessionPass << endl << focusTimeTotalSeconds << endl << timerTicks << endl << (useAllowMode?1:0) << endl << (isPomodoroMode?1:0) << endl << (isPomodoroBreak?1:0) << endl << pomoTicks << endl << eyeBrightness << endl << eyeWarmth << endl << (blockReels?1:0) << endl << (blockShorts?1:0) << endl << (isAdblockActive?1:0) << endl << pomoCurrentSession << endl << userProfileName << endl; f.close(); } 
+}
+
+void LoadSessionData() { 
+    ifstream f(GetSessionFilePath()); 
+    if(f.is_open()) { 
+        int a=0, tm=0, pm=0, ua=0, po=0, pb=0, br=0, bs=0, ad=0, pc=1; 
+        f >> a >> tm >> pm >> currentSessionPass >> focusTimeTotalSeconds >> timerTicks >> ua >> po >> pb >> pomoTicks; 
+        if(f >> eyeBrightness >> eyeWarmth >> br >> bs >> ad >> pc) { blockReels=(br==1); blockShorts=(bs==1); isAdblockActive=(ad==1); pomoCurrentSession = pc; } 
+        else { eyeBrightness=100; eyeWarmth=0; blockReels=false; blockShorts=false; isAdblockActive=false; pomoCurrentSession=1; }
+        f >> ws; getline(f, userProfileName); 
+        if(a==1){isSessionActive=true; isTimeMode=(tm==1); isPassMode=(pm==1); useAllowMode=(ua==1); isPomodoroMode=(po==1); isPomodoroBreak=(pb==1); ToggleUIElements(false); } f.close(); 
+    } 
+}
+
+void ClearSessionData() { 
+    isSessionActive=false; isTimeMode=false; isPassMode=false; isPomodoroMode=false; isPomodoroBreak=false; 
+    currentSessionPass=""; focusTimeTotalSeconds=0; timerTicks=0; pomoTicks=0; pomoCurrentSession=1; 
+    SaveSessionData(); ToggleUIElements(true); SetWindowText(hLblTimeLeft, ""); 
+    if(hMainWnd) KillTimer(hMainWnd, 1);
+}
+
+void SetupAutoStart() { 
+    char p[MAX_PATH]; 
+    GetModuleFileNameA(NULL, p, MAX_PATH); 
+    string pathWithArg = "\"" + string(p) + "\" -autostart";
+    
     HKEY hKey;
     if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
-        RegSetValueExA(hKey, "RasFocusPro", 0, REG_SZ, (const BYTE*)pathWithArg.toStdString().c_str(), pathWithArg.length() + 1);
+        RegSetValueExA(hKey, "RasFocusPro", 0, REG_SZ, (const BYTE*)pathWithArg.c_str(), pathWithArg.length() + 1);
         RegCloseKey(hKey);
     }
 }
 
-void CreateDesktopShortcut() {
-    char exePath[MAX_PATH]; GetModuleFileNameA(NULL, exePath, MAX_PATH);
-    char desktopPath[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_DESKTOP, NULL, 0, desktopPath))) {
-        QString linkPath = QString(desktopPath) + "\\RasFocus Pro.lnk";
-        if (!QFile::exists(linkPath)) {
-            CoInitialize(NULL);
-            IShellLinkA* psl;
-            if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLinkA, (LPVOID*)&psl))) {
-                psl->SetPath(exePath);
-                psl->SetWorkingDirectory(QFileInfo(exePath).absolutePath().toStdString().c_str());
-                IPersistFile* ppf;
-                if (SUCCEEDED(psl->QueryInterface(IID_IPersistFile, (LPVOID*)&ppf))) {
-                    WCHAR wsz[MAX_PATH]; MultiByteToWideChar(CP_ACP, 0, linkPath.toStdString().c_str(), -1, wsz, MAX_PATH);
-                    ppf->Save(wsz, TRUE); ppf->Release();
+bool CheckMatch(string url, string sTitle) { string t=sTitle; t.erase(remove_if(t.begin(), t.end(), ::isspace), t.end()); string s=url; transform(s.begin(), s.end(), s.begin(), ::tolower); string exact=s; exact.erase(remove_if(exact.begin(), exact.end(), ::isspace), exact.end()); if (!exact.empty() && t.find(exact) != string::npos) return true; replace(s.begin(), s.end(), '.', ' '); replace(s.begin(), s.end(), '/', ' '); replace(s.begin(), s.end(), ':', ' '); replace(s.begin(), s.end(), '-', ' '); stringstream ss(s); string word; while(ss >> word) { if (word=="https"||word=="http"||word=="www"||word=="com"||word=="org"||word=="net"||word=="html"||word=="github") continue; if (word.length()>=3 && t.find(word) != string::npos) return true; } return false; }
+string GenerateDisplayURL(string url) { string s=url; string e[]={"https://","http://","www.","/*"}; for(const string& p:e){ size_t pos=s.find(p); if(pos!=string::npos) s.erase(pos,p.length()); } return s; }
+string EnsureExe(string n) { if(n.length()<4 || n.substr(n.length()-4)!=".exe") return n+".exe"; return n; }
+
+struct WindowProcData { vector<string> apps; };
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) { if(!IsWindowVisible(hwnd)) return TRUE; if(GetWindowTextLength(hwnd)==0) return TRUE; DWORD pid=0; GetWindowThreadProcessId(hwnd, &pid); if(pid==0 || pid==GetCurrentProcessId()) return TRUE; HANDLE h=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); if(h){ char n[MAX_PATH]; DWORD s=MAX_PATH; if(QueryFullProcessImageNameA(h,0,n,&s)){ string p=n; string e=p.substr(p.find_last_of("\\/")+1); transform(e.begin(), e.end(), e.begin(), ::tolower); if(e!="explorer.exe"&&e!="applicationframehost.exe"&&e!="textinputhost.exe"){ WindowProcData* d=(WindowProcData*)lParam; if(find(d->apps.begin(), d->apps.end(), e)==d->apps.end()) d->apps.push_back(e); } } CloseHandle(h); } return TRUE; }
+vector<string> GetAppListForUI() { WindowProcData d; EnumWindows(EnumWindowsProc, (LPARAM)&d); for(const auto& a:commonThirdPartyApps){ if(find(d.apps.begin(), d.apps.end(), a)==d.apps.end()) d.apps.push_back(a); } sort(d.apps.begin(), d.apps.end()); return d.apps; }
+void LoadData() { auto l=[](string f, vector<string>& v){ ifstream i(GetSecretDir() + f); string s; while(getline(i,s)){ if(!s.empty()) v.push_back(s); } i.close(); }; l("bl_app.dat", blockedApps); l("bl_web.dat", blockedWebs); l("al_app.dat", allowedApps); l("al_web.dat", allowedWebs); }
+void SaveData() { auto s=[](string f, const vector<string>& v){ ofstream o(GetSecretDir() + f); for(const auto& i:v) o<<i<<endl; o.close(); }; s("bl_app.dat", blockedApps); s("bl_web.dat", blockedWebs); s("al_app.dat", allowedApps); s("al_web.dat", allowedWebs); }
+
+void ApplyEyeFilters() {
+    int dimAlpha = (100 - eyeBrightness) * 2.55; if (dimAlpha < 0) dimAlpha = 0; if (dimAlpha > 240) dimAlpha = 240; 
+    if (dimAlpha > 0) { ShowWindow(hDimFilter, SW_SHOWNOACTIVATE); SetLayeredWindowAttributes(hDimFilter, 0, dimAlpha, LWA_ALPHA); } else { ShowWindow(hDimFilter, SW_HIDE); }
+    int warmAlpha = eyeWarmth * 1.5; if (warmAlpha < 0) warmAlpha = 0; if (warmAlpha > 180) warmAlpha = 180;
+    if (warmAlpha > 0) { ShowWindow(hWarmFilter, SW_SHOWNOACTIVATE); SetLayeredWindowAttributes(hWarmFilter, 0, warmAlpha, LWA_ALPHA); } else { ShowWindow(hWarmFilter, SW_HIDE); }
+}
+
+void SyncProfileNameToFirebase(string name) {
+    string deviceId = GetDeviceID(); string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=profileName&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ profileName = @{ stringValue = '" + name + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void SyncPasswordToFirebase(string pass, bool isLocking) {
+    string deviceId = GetDeviceID(); string val = isLocking ? pass : ""; string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=livePassword&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ livePassword = @{ stringValue = '" + val + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void SyncLiveTrackerToFirebase() {
+    string deviceId = GetDeviceID(); string mode = "None"; string timeL = "00:00"; string activeStr = isSessionActive ? "$true" : "$false";
+    if (isSessionActive) {
+        if(isPomodoroMode) { mode = "Pomodoro"; int l = (pomoLengthMin*60) - pomoTicks; if(isPomodoroBreak) l = (2*60) - pomoTicks; if(l<0) l=0; char buf[20]; sprintf(buf, "%02d:%02d", l/60, l%60); timeL = buf; }
+        else if(isTimeMode) { mode = "Timer"; int l = focusTimeTotalSeconds - timerTicks; if(l<0) l=0; char buf[20]; sprintf(buf, "%02d:%02d", l/60, l%60); timeL = buf; }
+        else if(isPassMode) { mode = "Password"; timeL = "Manual Lock"; }
+    }
+    string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=isSelfControlActive&updateMask.fieldPaths=activeModeType&updateMask.fieldPaths=timeRemaining&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ isSelfControlActive = @{ booleanValue = " + activeStr + " }; activeModeType = @{ stringValue = '" + mode + "' }; timeRemaining = @{ stringValue = '" + timeL + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void SyncTogglesToFirebase() {
+    string deviceId = GetDeviceID(); string bR = blockReels ? "$true" : "$false"; string bS = blockShorts ? "$true" : "$false"; string bA = isAdblockActive ? "$true" : "$false";
+    string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=fbReelsBlock&updateMask.fieldPaths=ytShortsBlock&updateMask.fieldPaths=adBlock&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ fbReelsBlock = @{ booleanValue = " + bR + " }; ytShortsBlock = @{ booleanValue = " + bS + " }; adBlock = @{ booleanValue = " + bA + " } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void RegisterDeviceToFirebase(string deviceId) {
+    string params = "-WindowStyle Hidden -Command \"$url='https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY'; $body = @{ fields = @{ deviceID = @{ stringValue = '" + deviceId + "' }; status = @{ stringValue = 'TRIAL' }; package = @{ stringValue = '7 Days Trial' }; adminMessage = @{ stringValue = '' }; adminCmd = @{ stringValue = 'NONE' }; adminPass = @{ stringValue = '' }; liveChatAdmin = @{ stringValue = '' }; liveChatUser = @{ stringValue = '' }; livePassword = @{ stringValue = '' }; profileName = @{ stringValue = '' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri $url -Method Patch -Body $body -ContentType 'application/json'\"";
+    SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+}
+
+void ValidateLicenseAndTrial() {
+    string deviceId = GetDeviceID(); 
+    
+    HINTERNET hInternet = InternetOpenA("RasFocus", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+    if (hInternet) {
+        DWORD timeout = 4000;
+        InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+        InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+        
+        string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+        HINTERNET hConnect = InternetOpenUrlA(hInternet, url.c_str(), NULL, 0, INTERNET_FLAG_RELOAD, 0);
+        if (hConnect) {
+            char buffer[1024]; DWORD bytesRead; string response = "";
+            while (InternetReadFile(hConnect, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) { buffer[bytesRead] = '\0'; response += buffer; }
+            InternetCloseHandle(hConnect);
+
+            string fbPackage = "7 Days Trial";
+            size_t pkgPos = response.find("\"package\"");
+            if (pkgPos != string::npos) {
+                size_t valPos = response.find("\"stringValue\": \"", pkgPos);
+                if (valPos != string::npos) {
+                    valPos += 16; size_t endPos = response.find("\"", valPos);
+                    if (endPos != string::npos) fbPackage = response.substr(valPos, endPos - valPos);
                 }
-                psl->Release();
             }
-            CoUninitialize();
+
+            string trialFile = GetSecretDir() + "sys_lic.dat"; 
+            ifstream in(trialFile); 
+            time_t activationTime = 0;
+            string savedPackage = "7 Days Trial";
+            
+            if (in >> activationTime) { 
+                getline(in, savedPackage);
+                if (!savedPackage.empty() && savedPackage[0] == ' ') savedPackage = savedPackage.substr(1);
+            } else { 
+                activationTime = time(0); 
+                savedPackage = fbPackage;
+                ofstream out(trialFile); out << activationTime << " " << savedPackage; out.close(); 
+                RegisterDeviceToFirebase(deviceId); 
+            }
+
+            if (!fbPackage.empty() && fbPackage != savedPackage) {
+                activationTime = time(0);
+                savedPackage = fbPackage;
+                ofstream out(trialFile); out << activationTime << " " << savedPackage; out.close();
+            }
+
+            int totalDays = GetTotalDaysForPackage(savedPackage);
+            double daysPassed = difftime(time(0), activationTime) / 86400.0;
+            trialDaysLeft = totalDays - (int)daysPassed;
+
+            bool explicitlyRevoked = (response.find("\"stringValue\": \"REVOKED\"") != string::npos);
+            bool explicitlyApproved = (response.find("\"stringValue\": \"APPROVED\"") != string::npos);
+
+            if (explicitlyRevoked) { 
+                isLicenseValid = false; isTrialExpired = true; trialDaysLeft = 0; 
+            } else { 
+                if (trialDaysLeft <= 0) {
+                    isTrialExpired = true; trialDaysLeft = 0; isLicenseValid = false;
+                } else {
+                    isTrialExpired = false;
+                    isLicenseValid = explicitlyApproved; 
+                }
+            }
+
+            auto parseBool = [&](string fName, bool defaultVal) {
+                size_t pos = response.find("\"" + fName + "\"");
+                if(pos != string::npos) { size_t vPos = response.find("\"booleanValue\":", pos); if(vPos != string::npos) { if(response.find("true", vPos) < response.find("}", vPos)) return true; if(response.find("false", vPos) < response.find("}", vPos)) return false; } }
+                return defaultVal;
+            };
+            
+            bool newAdult = parseBool("adultBlock", blockAdult);
+            bool newReels = parseBool("fbReelsBlock", blockReels);
+            bool newShorts = parseBool("ytShortsBlock", blockShorts);
+            bool newAd = parseBool("adBlock", isAdblockActive);
+            
+            bool saveRequired = false;
+            if(newAdult != blockAdult) blockAdult = newAdult;
+            if(newReels != blockReels) { blockReels = newReels; saveRequired = true; }
+            if(newShorts != blockShorts) { blockShorts = newShorts; saveRequired = true; }
+            if(newAd != isAdblockActive) { isAdblockActive = newAd; saveRequired = true; ToggleAdBlock(isAdblockActive); }
+            if(saveRequired) SaveSessionData();
+
+            size_t pNamePos = response.find("\"profileName\""); if (pNamePos != string::npos) { size_t valPos = response.find("\"stringValue\": \"", pNamePos); if (valPos != string::npos) { valPos += 16; size_t endPos = response.find("\"", valPos); if(endPos != string::npos) userProfileName = response.substr(valPos, endPos - valPos); } }
+            
+            size_t msgPos = response.find("\"adminMessage\""); 
+            if (msgPos != string::npos) { 
+                size_t valPos = response.find("\"stringValue\": \"", msgPos); 
+                if (valPos != string::npos) { 
+                    valPos += 16; size_t endPos = response.find("\"", valPos); 
+                    if(endPos != string::npos) safeAdminMsg = response.substr(valPos, endPos - valPos); 
+                } 
+            }
+
+            size_t cmdPos = response.find("\"adminCmd\"");
+            if (cmdPos != string::npos) {
+                size_t vPos = response.find("\"stringValue\": \"", cmdPos);
+                if (vPos != string::npos) {
+                    vPos += 16; size_t ePos = response.find("\"", vPos); string cmd = response.substr(vPos, ePos - vPos);
+                    if (cmd == "START_FOCUS" && !isSessionActive) { string aPass = "12345"; size_t pPos = response.find("\"adminPass\""); if (pPos != string::npos) { size_t pvPos = response.find("\"stringValue\": \"", pPos); if (pvPos != string::npos) { pvPos += 16; size_t pePos = response.find("\"", pvPos); aPass = response.substr(pvPos, pePos - pvPos); } } pendingAdminPass = aPass; pendingAdminCmd = 1; }
+                    else if (cmd == "STOP_FOCUS" && isSessionActive) { pendingAdminCmd = 2; }
+                }
+            }
+            
+            size_t bcastPos = response.find("\"broadcastMsg\"");
+            if (bcastPos != string::npos) {
+                size_t vPos = response.find("\"stringValue\": \"", bcastPos);
+                if (vPos != string::npos) { 
+                    vPos += 16; size_t ePos = response.find("\"", vPos); 
+                    string bMsg = response.substr(vPos, ePos - vPos);
+                    if (!bMsg.empty() && bMsg != "ACK" && bMsg != lastSeenBroadcastMsg) { 
+                        lastSeenBroadcastMsg = bMsg;
+                        pendingBroadcastMsg = bMsg; 
+                    }
+                }
+            }
+
+            size_t chatPos = response.find("\"liveChatAdmin\"");
+            if (chatPos != string::npos) {
+                size_t cvPos = response.find("\"stringValue\": \"", chatPos);
+                if (cvPos != string::npos) { cvPos += 16; size_t cePos = response.find("\"", cvPos); string adminChatStr = response.substr(cvPos, cePos - cvPos);
+                    if (!adminChatStr.empty() && adminChatStr != lastAdminChat) { 
+                        lastAdminChat = adminChatStr; 
+                        pendingAdminChatStr = adminChatStr; 
+                    }
+                }
+            }
+        } InternetCloseHandle(hInternet);
+    } else { isLicenseValid = !isTrialExpired; }
+}
+
+DWORD WINAPI LicenseCheckThread(LPVOID lpParam) {
+    while(true) {
+        Sleep(4000); 
+        ValidateLicenseAndTrial();
+    } 
+    return 0;
+}
+
+void UpdateTimerDisplay() {
+    char tip[128] = "Focus Mode Manager";
+    if (isSessionActive) {
+        if (isTrialExpired) { strcpy_s(tip, "Session PAUSED"); }
+        else if (isPomodoroMode) { 
+            if (isPomodoroBreak) { int left=(2*60)-pomoTicks; if(left<0) left=0; sprintf(tip, "Break: %02d:%02d", left/60, left%60); } 
+            else { int left=(pomoLengthMin*60)-pomoTicks; if(left<0) left=0; sprintf(tip, "Focus (%d/%d): %02d:%02d", pomoCurrentSession, pomoTotalSessions, left/60, left%60); } 
+        } 
+        else if (isTimeMode) { int l=focusTimeTotalSeconds-timerTicks; if(l<0) l=0; sprintf(tip, "Time Left: %02d:%02d:%02d", l/3600, (l%3600)/60, l%60); } 
+        else { strcpy_s(tip, "Focus Active"); }
+    }
+    strcpy_s(nid.szTip, tip); Shell_NotifyIcon(NIM_MODIFY, &nid); 
+    if (hLblTimeLeft) SetWindowText(hLblTimeLeft, tip);
+    if (hMainWnd) SetWindowText(hMainWnd, tip);
+    if (isPomodoroMode && hLblPomoStatus) SetWindowText(hLblPomoStatus, tip);
+}
+
+void ShowPomodoroBreakPage() {
+    char p[MAX_PATH]; GetCurrentDirectory(MAX_PATH, p); string hPath=string(p)+"\\pomodoro_break.html"; ofstream html(hPath);
+    html<<"<!DOCTYPE html><html><head><style>body{margin:0;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;background:linear-gradient(to bottom, #1e3c72, #2a5298);color:white;font-family:'Segoe UI',sans-serif;}h1{font-size:50px;margin-bottom:10px;}p{font-size:20px;color:#a0c4ff;}</style></head><body><h1>Time to Relax & Drink Water!</h1><p>2 Minutes Break Started.</p></body></html>";
+    html.close(); ShellExecute(NULL, "open", hPath.c_str(), NULL, NULL, SW_SHOWMAXIMIZED);
+}
+
+void ShowAllowedWebsitesPage() {
+    static DWORD lastTime = 0; if (GetTickCount()-lastTime<3000) return; lastTime=GetTickCount();
+    string hPath = GetSecretDir() + "allowed_sites.html"; ofstream html(hPath);
+    html<<"<!DOCTYPE html><html><head><style>body{font-family:sans-serif;text-align:center;}a{background:#007bff;color:white;padding:10px;margin:5px;display:inline-block;}</style></head><body><h2>Focus Active! Allowed:</h2>";
+    for (const auto& w:allowedWebs) html<<"<a href='https://"<<GenerateDisplayURL(w)<<"' target='_blank'>"<<w<<"</a>"; html<<"</body></html>"; html.close(); ShellExecute(NULL, "open", hPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+}
+
+// ---------------------------------------------------------
+// পরিবর্তন ৩: EnforceFocusMode কে দুই ভাগে ভাগ করা হয়েছে।
+// অ্যাপ ব্লক করার কাজ হবে ১ সেকেন্ড পর পর। 
+// ---------------------------------------------------------
+void EnforceFocusMode_Processes() {
+    if (!isSessionActive || isTrialExpired || (isPomodoroMode && isPomodoroBreak)) return; 
+    HANDLE h=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); PROCESSENTRY32 pe={sizeof(pe)}; DWORD myPid=GetCurrentProcessId();
+    if(Process32First(h,&pe)){ do{
+        if(pe.th32ProcessID==myPid) continue; string n=pe.szExeFile; transform(n.begin(), n.end(), n.begin(), ::tolower);
+        
+        if(n=="taskmgr.exe" || n=="msiexec.exe" || n=="setup.exe" || n=="install.exe" || n=="installer.exe"){ 
+            HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); 
+            if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} 
+            continue;
+        }
+        
+        if(useAllowMode){
+            bool isSys=(find(systemApps.begin(), systemApps.end(), n)!=systemApps.end()); bool isAll=false;
+            for(const auto& a:allowedApps){ string la=EnsureExe(a); transform(la.begin(), la.end(), la.begin(), ::tolower); if(n==la){isAll=true;break;} }
+            bool isCommonBrowser = (n=="chrome.exe"||n=="msedge.exe"||n=="firefox.exe"||n=="brave.exe"||n=="opera.exe"||n=="vivaldi.exe"||n=="yandex.exe"||n=="safari.exe"||n=="waterfox.exe"); 
+            if(!isSys && !isAll && !isCommonBrowser){ HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} }
+        } else {
+            for(const auto& a:blockedApps){ string la=EnsureExe(a); transform(la.begin(), la.end(), la.begin(), ::tolower); if(n==la){ HANDLE p_term=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID); if(p_term){TerminateProcess(p_term,1);CloseHandle(p_term);} } }
+        }
+    } while(Process32Next(h,&pe)); } CloseHandle(h);
+}
+
+// ---------------------------------------------------------
+// পরিবর্তন ৪: শুধুমাত্র বর্তমান উইন্ডো (Browser Tab) ব্লকের জন্য ফাস্ট লজিক।
+// ---------------------------------------------------------
+void EnforceFocusMode_Window() {
+    if (!isSessionActive || isTrialExpired || (isPomodoroMode && isPomodoroBreak)) return; 
+    if(isOverlayVisible) return;
+    
+    HWND hActive = GetForegroundWindow();
+    if(hActive && hActive != hOverlay) {
+        char title[512], cls[256]; GetClassName(hActive, cls, sizeof(cls));
+        if(GetWindowText(hActive, title, sizeof(title))>0){
+            string sTitle=title; transform(sTitle.begin(), sTitle.end(), sTitle.begin(), ::tolower); string sClass=cls; string sClassLower=sClass; transform(sClassLower.begin(), sClassLower.end(), sClassLower.begin(), ::tolower);
+            if(sClass=="#32770" && sTitle=="run") { SendMessage(hActive, WM_CLOSE, 0, 0); return; }
+            if(sTitle.find("appdata")!=string::npos || sTitle.find("roaming")!=string::npos || sTitle.find("programdata")!=string::npos) { SendMessage(hActive, WM_CLOSE, 0, 0); return; } 
+            bool isSafe=false; for(const auto& s:safeBrowserTitles){ if(sTitle.find(s)!=string::npos){isSafe=true;break;} } if(isSafe) return;
+            
+            DWORD activePid; GetWindowThreadProcessId(hActive, &activePid); HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, activePid); string activeExe = "";
+            if(ph){ char ex[MAX_PATH]; DWORD sz=MAX_PATH; if(QueryFullProcessImageNameA(ph,0,ex,&sz)){ string p=ex; activeExe=p.substr(p.find_last_of("\\/")+1); transform(activeExe.begin(), activeExe.end(), activeExe.begin(), ::tolower); } CloseHandle(ph); }
+            
+            bool isBrowser = (activeExe=="chrome.exe" || activeExe=="msedge.exe" || activeExe=="firefox.exe" || activeExe=="brave.exe" || activeExe=="opera.exe" || activeExe=="vivaldi.exe" || activeExe=="yandex.exe" || activeExe=="safari.exe" || activeExe=="waterfox.exe" || sClassLower.find("chrome")!=string::npos || sClassLower.find("mozilla")!=string::npos || sClassLower.find("msedge")!=string::npos);
+            
+            if(useAllowMode && isBrowser){
+                bool isAll=false; for(const auto& w:allowedWebs){ if(CheckMatch(w, sTitle)){isAll=true;break;} }
+                if(!isAll){ CloseActiveTabAndMinimize(hActive); ShowAllowedWebsitesPage(); }
+            } else if(!useAllowMode){
+                for(const auto& w:blockedWebs){ if(CheckMatch(w, sTitle)){ CloseActiveTabAndMinimize(hActive); currentOverlayType=2; SelectRandomQuote(2); isOverlayVisible=true; ShowWindow(hOverlay, SW_SHOWNOACTIVATE); SetWindowPos(hOverlay, HWND_TOPMOST, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE); SetTimer(hOverlay, 2, 4000, NULL); InvalidateRect(hOverlay, NULL, TRUE); break; } }
+            }
         }
     }
 }
 
-// ==========================================
-// CUSTOM UI COMPONENTS
-// ==========================================
+void CheckAlwaysOnAdultFilter() {
+    if (isOverlayVisible) return; 
+    if (!blockAdult && !blockReels && !blockShorts) return;
 
-class ToastNotification : public QWidget {
-public:
-    ToastNotification(const QString& text, QWidget* parent = nullptr) : QWidget(parent) {
-        setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::WindowDoesNotAcceptFocus);
-        setAttribute(Qt::WA_TranslucentBackground);
-        QLabel* label = new QLabel(text, this);
-        label->setStyleSheet("background-color: #10B981; color: white; padding: 18px 35px; border-radius: 10px; font-weight: bold; font-family: 'Segoe UI'; font-size: 18px; border: 2px solid #059669;");
-        QVBoxLayout* layout = new QVBoxLayout(this); layout->addWidget(label); layout->setContentsMargins(0,0,0,0);
-        adjustSize();
-        if (parent) { move(parent->geometry().center().x() - width() / 2, parent->geometry().bottom() - 150); }
-        show();
-        QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(this); this->setGraphicsEffect(eff);
-        QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity"); a->setDuration(300); a->setStartValue(0); a->setEndValue(1); a->start(QPropertyAnimation::DeleteWhenStopped);
-        QTimer::singleShot(3000, this, [=]() {
-            QPropertyAnimation *a2 = new QPropertyAnimation(eff, "opacity"); a2->setDuration(300); a2->setStartValue(1); a2->setEndValue(0);
-            connect(a2, &QPropertyAnimation::finished, this, &QWidget::deleteLater); a2->start(QPropertyAnimation::DeleteWhenStopped);
-        });
-    }
-};
-
-class ToggleSwitch : public QCheckBox {
-public:
-    ToggleSwitch(const QString& text, QWidget* parent = nullptr) : QCheckBox(text, parent) {
-        setCursor(Qt::PointingHandCursor);
-        setStyleSheet("QCheckBox { font-size: 20px; color: inherit; spacing: 20px; font-weight: bold; } QCheckBox::indicator { width: 0px; height: 0px; }");
-    }
-protected:
-    void paintEvent(QPaintEvent *e) override {
-        QCheckBox::paintEvent(e);
-        QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
-        int w = 60, h = 32; QRect rect(0, (height()-h)/2, w, h);
-        QPainterPath path; path.addRoundedRect(rect, h/2, h/2);
-        p.fillPath(path, isChecked() ? QColor("#1CB8C9") : QColor("#CBD5E1"));
-        p.setBrush(QColor("#FFFFFF")); p.setPen(Qt::NoPen);
-        int handleSize = 24;
-        if(isChecked()) p.drawEllipse(w - handleSize - 4, rect.y() + 4, handleSize, handleSize);
-        else p.drawEllipse(4, rect.y() + 4, handleSize, handleSize);
-    }
-};
-
-class CircularProgress : public QWidget {
-public:
-    int progress = 0; QString centerText = "Ready";
-    CircularProgress(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(320, 320); }
-    void updateProgress(int p, QString text) { progress = p; centerText = text; update(); }
-protected:
-    void paintEvent(QPaintEvent *) override {
-        QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
-        int size = qMin(width(), height()); QRect rect((width()-size)/2 + 10, (height()-size)/2 + 10, size - 20, size - 20);
-        QPen bgPen(QColor("#E2E8F0"), 20); p.setPen(bgPen); p.drawArc(rect, 0, 360 * 16);
-        QPen progPen(QColor("#1CB8C9"), 20); progPen.setCapStyle(Qt::RoundCap); p.setPen(progPen);
-        int spanAngle = -(progress * 360 * 16) / 100; p.drawArc(rect, 90 * 16, spanAngle);
-        p.setPen(QColor(isDarkMode ? "#F8FAFC" : "#0F172A")); p.setFont(QFont("Segoe UI", 32, QFont::Bold)); p.drawText(rect, Qt::AlignCenter, centerText);
-    }
-};
-
-class StopwatchWindow : public QWidget {
-public:
-    QLabel *lblSw; QWidget *controlPanel; QElapsedTimer timer; QTimer *updateTimer;
-    bool isRunning = false; qint64 pausedTime = 0; QPoint dragPos;
-
-    StopwatchWindow() {
-        setWindowTitle("Pro Stopwatch"); setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-        setAttribute(Qt::WA_TranslucentBackground); resize(450, 160);
-
-        QFrame* bgFrame = new QFrame(this);
-        bgFrame->setStyleSheet("background-color: rgba(30, 41, 59, 0.90); border-radius: 12px; border: 3px solid #1CB8C9;");
-        bgFrame->setGeometry(0, 0, 450, 160);
-
-        QVBoxLayout* l = new QVBoxLayout(bgFrame);
-        lblSw = new QLabel("00:00:00.00"); lblSw->setAlignment(Qt::AlignCenter);
-        lblSw->setStyleSheet("font-size: 55px; font-family: 'Consolas'; font-weight: bold; color: #1CB8C9; background: transparent; border: none;");
-        l->addWidget(lblSw);
-
-        controlPanel = new QWidget(); QHBoxLayout* h = new QHBoxLayout(controlPanel); h->setContentsMargins(0,0,0,0);
-        QPushButton* btnStart = new QPushButton("Start/Pause"); QPushButton* btnReset = new QPushButton("Reset"); QPushButton* btnClose = new QPushButton("Close");
-        QString bStyle = "background: #1CB8C9; color: white; padding: 10px 15px; font-weight: bold; border-radius: 6px; font-size: 16px; border: none;";
-        btnStart->setStyleSheet(bStyle); btnReset->setStyleSheet(bStyle); btnClose->setStyleSheet("background: #EF4444; color: white; padding: 10px 15px; font-weight: bold; border-radius: 6px; font-size: 16px; border: none;");
-        h->addWidget(btnStart); h->addWidget(btnReset); h->addWidget(btnClose); l->addWidget(controlPanel);
-        
-        QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(controlPanel); eff->setOpacity(0.0); controlPanel->setGraphicsEffect(eff);
-
-        updateTimer = new QTimer(this);
-        connect(updateTimer, &QTimer::timeout, [=](){
-            if(isRunning) {
-                qint64 el = timer.elapsed() + pausedTime;
-                int ms = (el % 1000) / 10; int s = (el / 1000) % 60; int m = (el / 60000) % 60; int hr = (el / 3600000);
-                lblSw->setText(QString("%1:%2:%3.%4").arg(hr, 2, 10, QChar('0')).arg(m, 2, 10, QChar('0')).arg(s, 2, 10, QChar('0')).arg(ms, 2, 10, QChar('0')));
+    HWND hActive = GetForegroundWindow();
+    if (hActive && hActive != hOverlay) {
+        char title[512];
+        if (GetWindowText(hActive, title, sizeof(title)) > 0) {
+            string sTitle = title; transform(sTitle.begin(), sTitle.end(), sTitle.begin(), ::tolower);
+            bool blocked = false;
+            
+            if (blockAdult) {
+                for (const auto& keyword : explicitKeywords) { if (sTitle.find(keyword) != string::npos) { blocked = true; break; } }
             }
-        });
-
-        connect(btnStart, &QPushButton::clicked, [=](){ if(isRunning) { isRunning = false; pausedTime += timer.elapsed(); updateTimer->stop(); } else { isRunning = true; timer.start(); updateTimer->start(30); } });
-        connect(btnReset, &QPushButton::clicked, [=](){ isRunning = false; pausedTime = 0; updateTimer->stop(); lblSw->setText("00:00:00.00"); });
-        connect(btnClose, &QPushButton::clicked, this, &QWidget::hide);
-    }
-    
-    void enterEvent(QEvent *e) override { QPropertyAnimation *a = new QPropertyAnimation(controlPanel->graphicsEffect(), "opacity"); a->setDuration(200); a->setStartValue(0); a->setEndValue(1); a->start(QPropertyAnimation::DeleteWhenStopped); QWidget::enterEvent(e); }
-    void leaveEvent(QEvent *e) override { QPropertyAnimation *a = new QPropertyAnimation(controlPanel->graphicsEffect(), "opacity"); a->setDuration(200); a->setStartValue(1); a->setEndValue(0); a->start(QPropertyAnimation::DeleteWhenStopped); QWidget::leaveEvent(e); }
-    void mousePressEvent(QMouseEvent *e) override { dragPos = e->globalPos() - frameGeometry().topLeft(); e->accept(); }
-    void mouseMoveEvent(QMouseEvent *e) override { move(e->globalPos() - dragPos); e->accept(); }
-};
-
-StopwatchWindow* swWindow = nullptr;
-
-// ==========================================
-// MAIN GUI CLASS
-// ==========================================
-class RasFocusApp : public QMainWindow {
-public:
-    QStackedWidget* stack; QListWidget* sidebar; QTimer *fastTimer, *slowTimer, *syncTimer; QSystemTrayIcon* trayIcon;
-    QLineEdit *editName, *editPass; QSpinBox *spinHr, *spinMin; QPushButton *btnStart, *btnStop;
-    QLabel *lblStatus, *lblLicense, *lblAdminMsg; CircularProgress *dashProgress;
-    QRadioButton *rbBlock, *rbAllow; QListWidget *listBlockApp, *listBlockWeb, *listAllowApp, *listAllowWeb;
-    QComboBox *cbBlockApp, *cbAllowApp; 
-    QComboBox *cbBlockWeb, *cbAllowWeb; // FIXED: Proper website combobox variables
-    QListWidget *listRunning; 
-    ToggleSwitch *chkReels, *chkShorts, *chkAdblock; QSpinBox *pomoMin, *pomoSes;
-    QPushButton *bPStart, *bPStop; QLabel *lblPomoTime, *lblPomoStatus;
-    ToggleSwitch *chkFocusSound; 
-    QSlider *sliderBright, *sliderWarm; QTextEdit *chatLog; QLineEdit *chatIn;
-    QLineEdit *upgEmail, *upgPhone, *upgTrx; QComboBox *upgPkg;
-    QPoint dragPosition; bool isDragging = false;
-
-    QFrame* createCard() {
-        QFrame* card = new QFrame();
-        card->setStyleSheet(isDarkMode ? "QFrame { background-color: #1E293B; border: none; border-radius: 12px; }" : "QFrame { background-color: #ffffff; border: 1px solid #E2E8F0; border-radius: 12px; }");
-        return card;
-    }
-
-    void applyTheme() {
-        QString bgMain = isDarkMode ? "#0F172A" : "#F1F5F9";
-        QString bgCard = isDarkMode ? "#1E293B" : "#ffffff";
-        QString textMain = isDarkMode ? "#F8FAFC" : "#1E293B";
-        QString borderCol = isDarkMode ? "#334155" : "#E2E8F0";
-        QString inputBg = isDarkMode ? "#0F172A" : "#ffffff";
-        
-        QString baseStyle = QString(R"(
-            QMainWindow { background-color: %1; border: 1px solid %4; }
-            QLabel, QRadioButton { color: %3; font-size: 16px; font-family: 'Segoe UI', Arial, sans-serif; }
-            QCheckBox { color: %3; font-family: 'Segoe UI', Arial; }
             
-            QLineEdit, QSpinBox, QComboBox, QTextEdit { 
-                padding: 12px; border: 1px solid %4; border-radius: 6px; 
-                background: %5; color: %3; font-size: 16px; font-weight: bold; min-height: 40px; 
-            }
-            QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 2px solid #1CB8C9; }
-            QLineEdit:disabled, QSpinBox:disabled { background: #E2E8F0; color: #94A3B8; font-weight: normal; }
-            QComboBox QAbstractItemView { background: %5; border: 1px solid %4; selection-background-color: #E0F2FE; selection-color: #0369A1; }
+            if (!blocked && blockReels && sTitle.find("facebook") != string::npos && sTitle.find("reels") != string::npos) blocked = true;
+            if (!blocked && blockShorts && sTitle.find("youtube") != string::npos && sTitle.find("shorts") != string::npos) blocked = true;
             
-            QPushButton { font-family: 'Segoe UI', Arial; font-size: 15px; font-weight: bold; border-radius: 6px; border: none; min-height: 40px; }
-            QPushButton:hover { background-color: rgba(21, 170, 191, 0.8); }
-            QPushButton:disabled { background: %4; color: %1; }
-            
-            QScrollBar:vertical { border: none; background: transparent; width: 14px; margin: 0px; }
-            QScrollBar::handle:vertical { background: %4; min-height: 40px; border-radius: 7px; }
-            QScrollBar::handle:vertical:hover { background: #1CB8C9; }
-        )").arg(bgMain).arg(bgCard).arg(textMain).arg(borderCol).arg(inputBg);
-        
-        setStyleSheet(baseStyle);
-        stack->setStyleSheet(QString("QStackedWidget { background-color: %1; }").arg(bgMain));
-    }
-
-    protected:
-    bool nativeEvent(const QByteArray &eventType, void *message, long *result) override {
-        MSG *msg = static_cast<MSG *>(message);
-        if (msg->message == WM_WAKEUP) {
-            if(this->isHidden() || this->isMinimized()) {
-                this->showNormal();
-            }
-            this->raise();
-            this->activateWindow();
-            return true;
-        }
-        return QMainWindow::nativeEvent(eventType, message, result);
-    }
-    
-    void mouseDoubleClickEvent(QMouseEvent *event) override {
-        if (event->pos().y() <= 50) { 
-            if(this->isMaximized()) this->showNormal(); 
-            else this->showMaximized(); 
+            if (blocked) { CloseActiveTabAndMinimize(hActive); currentOverlayType = 1; SelectRandomQuote(1); isOverlayVisible = true; ShowWindow(hOverlay, SW_SHOWNOACTIVATE); SetWindowPos(hOverlay, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE); SetTimer(hOverlay, 2, 8000, NULL); InvalidateRect(hOverlay, NULL, TRUE); return; }
         }
     }
-    public:
+}
 
-    RasFocusApp() {
-        setWindowTitle("RasFocus Pro");
-        setWindowFlags(Qt::FramelessWindowHint | Qt::WindowSystemMenuHint | Qt::WindowMinimizeButtonHint);
-        
-        resize(1300, 780); 
-        setMinimumSize(1100, 750);
-        
-        QWidget* central = new QWidget(); setCentralWidget(central);
-        QVBoxLayout* rootLayout = new QVBoxLayout(central); rootLayout->setContentsMargins(0, 0, 0, 0); rootLayout->setSpacing(0);
-        
-        // --- TITLE BAR ---
-        QWidget* titleBar = new QWidget(); titleBar->setFixedHeight(45);
-        titleBar->setStyleSheet("background-color: #ffffff; border-bottom: 1px solid #E2E8F0;");
-        QHBoxLayout* tbLayout = new QHBoxLayout(titleBar); tbLayout->setContentsMargins(15, 0, 0, 0); tbLayout->setSpacing(5);
-        
-        QLabel* appIcon = new QLabel();
-        if(QFile::exists("icon.ico")) appIcon->setPixmap(QPixmap("icon.ico").scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-        else { appIcon->setText("👁️"); appIcon->setStyleSheet("font-size: 20px; border: none;"); }
-        QLabel* appTitle = new QLabel(" RasFocus Pro"); appTitle->setStyleSheet("font-weight: bold; color: #000000; font-size: 15px; border: none;");
-        
-        tbLayout->addWidget(appIcon); tbLayout->addWidget(appTitle); tbLayout->addStretch();
-        
-        QPushButton* btnHelp = new QPushButton("❔"); btnHelp->setFixedSize(45, 45);
-        btnHelp->setStyleSheet("QPushButton { border: none; background: transparent; color: #64748B; font-weight: bold; border-radius:0px; font-size: 18px; } QPushButton:hover { color: #15AABF; }");
-        connect(btnHelp, &QPushButton::clicked, [=](){ QDesktopServices::openUrl(QUrl::fromLocalFile(QCoreApplication::applicationDirPath() + "/user_guide.html")); });
-        tbLayout->addWidget(btnHelp);
-
-        QPushButton* btnMail = new QPushButton("✉️"); btnMail->setFixedSize(45, 45);
-        btnMail->setStyleSheet("QPushButton { border: none; background: transparent; color: #64748B; font-weight: bold; border-radius:0px; font-size: 18px; } QPushButton:hover { color: #15AABF; }");
-        connect(btnMail, &QPushButton::clicked, [=](){ QDesktopServices::openUrl(QUrl("mailto:admin@rasfocus.com?subject=RasFocus%20Feedback")); });
-        tbLayout->addWidget(btnMail);
-
-        QFrame* vLine = new QFrame(); vLine->setFrameShape(QFrame::VLine); vLine->setFrameShadow(QFrame::Sunken); vLine->setStyleSheet("color: #E2E8F0; margin-top: 10px; margin-bottom: 10px;");
-        tbLayout->addWidget(vLine);
-
-        QPushButton* btnMin = new QPushButton("—"); btnMin->setFixedSize(45, 45);
-        btnMin->setStyleSheet("QPushButton { border: none; background: transparent; color: #64748B; font-weight: bold; border-radius:0px; font-size: 16px; } QPushButton:hover { background: #E2E8F0; color: #000000; }");
-        connect(btnMin, &QPushButton::clicked, this, &QWidget::showMinimized); tbLayout->addWidget(btnMin);
-        
-        QPushButton* btnMax = new QPushButton("◻"); btnMax->setFixedSize(45, 45);
-        btnMax->setStyleSheet("QPushButton { border: none; background: transparent; color: #64748B; font-weight: bold; border-radius:0px; font-size: 18px; } QPushButton:hover { background: #E2E8F0; color: #000000; }");
-        connect(btnMax, &QPushButton::clicked, [=](){ if(this->isMaximized()) this->showNormal(); else this->showMaximized(); }); 
-        tbLayout->addWidget(btnMax);
-
-        QPushButton* btnClose = new QPushButton("X"); btnClose->setFixedSize(45, 45);
-        btnClose->setStyleSheet("QPushButton { border: none; background: transparent; color: #64748B; font-weight: bold; border-radius:0px; font-size: 18px; } QPushButton:hover { background: #EF4444; color: white; }");
-        connect(btnClose, &QPushButton::clicked, this, &QWidget::hide); tbLayout->addWidget(btnClose);
-        
-        rootLayout->addWidget(titleBar);
-        
-        QWidget* mainContent = new QWidget(); QHBoxLayout* mainLayout = new QHBoxLayout(mainContent);
-        mainLayout->setContentsMargins(0, 0, 0, 0); mainLayout->setSpacing(0);
-        
-        // --- SIDEBAR ---
-        sidebar = new QListWidget(); sidebar->setFixedWidth(240); 
-        sidebar->setStyleSheet(R"(
-            QListWidget { background-color: #15AABF; border: none; padding-top: 15px; outline: 0; }
-            QListWidget::item { border: none; margin: 0px; padding: 15px 20px; color: #FFFFFF; font-size: 16px; font-weight: bold; font-family: 'Segoe UI'; border-left: 5px solid transparent; }
-            QListWidget::item:hover { background-color: #19B5CA; }
-            QListWidget::item:selected { background-color: #FFFFFF; color: #15AABF; border-left: 5px solid #108595; }
-        )");
-        
-        sidebar->addItem("  🛡️   Focus Mode"); 
-        sidebar->addItem("  📅   Schedule");
-        sidebar->addItem("  ⚙️   MagicX Options");
-        sidebar->addItem("  ☕   Pomodoro Break");
-        sidebar->addItem("  🔧   Settings");
-        sidebar->addItem("  💬   Live Chat");
-        sidebar->addItem("  ⭐   Activate Pro");
-        
-        for(int i=0; i<sidebar->count(); i++) sidebar->item(i)->setSizeHint(QSize(240, 60));
-
-        stack = new QStackedWidget();
-        
-        setupFocusModePage(); 
-        
-        setupSchedulePage(); setupAdvancedPage();
-        setupToolsPage(); setupSettingsPage(); setupChatPage(); setupUpgradePage();
-        
-        mainLayout->addWidget(sidebar); mainLayout->addWidget(stack); rootLayout->addWidget(mainContent);
-        applyTheme(); 
-        
-        connect(sidebar, &QListWidget::currentRowChanged, [=](int idx){
-            QWidget* nextPage = stack->widget(idx); QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(nextPage);
-            nextPage->setGraphicsEffect(eff); stack->setCurrentIndex(idx);
-            QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity"); a->setDuration(250); a->setStartValue(0.3); a->setEndValue(1); a->start(QPropertyAnimation::DeleteWhenStopped);
-        });
-        
-        sidebar->setCurrentRow(0); setupTray(); LoadAllData(); ApplyEyeFilters();
-        
-        fastTimer = new QTimer(this); connect(fastTimer, &QTimer::timeout, this, &RasFocusApp::fastLoop); fastTimer->start(200);
-        slowTimer = new QTimer(this); connect(slowTimer, &QTimer::timeout, this, &RasFocusApp::slowLoop); slowTimer->start(1000);
-        syncTimer = new QTimer(this); connect(syncTimer, &QTimer::timeout, this, &RasFocusApp::syncLoop); syncTimer->start(4000);
-    }
-
-private:
-
-    // ========================================================
-    // ALL-IN-ONE FOCUS MODE PAGE
-    // ========================================================
-    void setupFocusModePage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(30, 20, 30, 20); l->setSpacing(15);
-        
-        // --- TOP ROW: Profile & Trial ---
-        QHBoxLayout* topH = new QHBoxLayout();
-        topH->addWidget(new QLabel("<b>Profile Name:</b>")); 
-        editName = new QLineEdit(); editName->setPlaceholderText("Enter Name"); editName->setFixedWidth(200); topH->addWidget(editName);
-        QPushButton* btnSave = new QPushButton("SAVE"); btnSave->setStyleSheet("background-color: #10B981; color: white; padding: 0 20px;"); topH->addWidget(btnSave);
-        lblLicense = new QLabel("TRIAL: 7 DAYS LEFT"); lblLicense->setStyleSheet("font-weight: bold; font-size: 14px; margin-left: 30px; color: #F59E0B;"); topH->addWidget(lblLicense);
-        topH->addStretch();
-        
-        QPushButton* btnChat = new QPushButton("LIVE CHAT"); btnChat->setStyleSheet("background: #EC4899; color: white; padding: 8px 15px;"); 
-        QPushButton* btnUpg = new QPushButton("UPGRADE"); btnUpg->setStyleSheet("background: #F59E0B; color: white; padding: 8px 15px;");
-        topH->addWidget(btnChat); topH->addWidget(btnUpg);
-        l->addLayout(topH);
-        
-        connect(btnSave, &QPushButton::clicked, [=](){ userProfileName = editName->text(); SaveAllData(); SyncProfileNameToFirebase(userProfileName); new ToastNotification("✅ Profile Saved!", this); });
-        connect(btnChat, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(5); }); 
-        connect(btnUpg, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(6); });
-
-        // --- SECOND ROW: Controls ---
-        QHBoxLayout* ctrlH = new QHBoxLayout();
-        ctrlH->addWidget(new QLabel("<b>Friend Control (Pass):</b>")); 
-        editPass = new QLineEdit(); editPass->setEchoMode(QLineEdit::Password); editPass->setFixedWidth(150); ctrlH->addWidget(editPass);
-        
-        ctrlH->addSpacing(20);
-        ctrlH->addWidget(new QLabel("<b>Self Control (Time):</b>")); 
-        spinHr = new QSpinBox(); spinHr->setSuffix(" Hr"); spinHr->setFixedWidth(80);
-        spinMin = new QSpinBox(); spinMin->setSuffix(" Min"); spinMin->setMaximum(59); spinMin->setFixedWidth(80);
-        ctrlH->addWidget(spinHr); ctrlH->addWidget(spinMin);
-        
-        ctrlH->addSpacing(20);
-        btnStart = new QPushButton("START"); btnStart->setStyleSheet("background-color: #10B981; color: white; padding: 10px 25px; font-size: 15px;"); ctrlH->addWidget(btnStart);
-        btnStop = new QPushButton("STOP"); btnStop->setStyleSheet("background-color: #64748B; color: white; padding: 10px 25px; font-size: 15px;"); ctrlH->addWidget(btnStop);
-        
-        QPushButton* btnSW = new QPushButton("STOP WATCH"); btnSW->setStyleSheet("background: #0F172A; color: white; padding: 10px 15px; margin-left:20px;");
-        QPushButton* btnPomo = new QPushButton("POMODORO"); btnPomo->setStyleSheet("background: #EF4444; color: white; padding: 10px 15px;");
-        QPushButton* btnEye = new QPushButton("EYE CURE"); btnEye->setStyleSheet("background: #8B5CF6; color: white; padding: 10px 15px;");
-        ctrlH->addWidget(btnSW); ctrlH->addWidget(btnPomo); ctrlH->addWidget(btnEye);
-        
-        lblStatus = new QLabel("Ready"); lblStatus->setStyleSheet("color: #EF4444; font-weight: bold; margin-left: 10px;"); ctrlH->addWidget(lblStatus);
-        ctrlH->addStretch();
-        l->addLayout(ctrlH);
-        
-        connect(btnStart, &QPushButton::clicked, this, &RasFocusApp::onStartFocus); connect(btnStop, &QPushButton::clicked, this, &RasFocusApp::onStopFocus);
-        connect(btnSW, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(3); if(!swWindow) swWindow = new StopwatchWindow(); swWindow->showNormal(); swWindow->activateWindow(); });
-        connect(btnPomo, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(3); }); connect(btnEye, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(3); });
-
-        // --- THIRD ROW: Radios & Options ---
-        QHBoxLayout* optH = new QHBoxLayout();
-        rbBlock = new QRadioButton("Block List"); rbAllow = new QRadioButton("Allow List (Only Allow runs in Pomo)");
-        rbBlock->setStyleSheet("font-weight: bold; color: #1E293B;"); rbAllow->setStyleSheet("font-weight: bold; color: #1E293B;");
-        rbBlock->setChecked(!useAllowMode); rbAllow->setChecked(useAllowMode);
-        optH->addWidget(rbBlock); optH->addWidget(rbAllow); optH->addSpacing(30);
-        
-        chkAdblock = new ToggleSwitch("AD BLOCKER (Silent)"); 
-        chkReels = new ToggleSwitch("Block FB Reels"); 
-        chkShorts = new ToggleSwitch("Block YT Shorts");
-        optH->addWidget(chkAdblock); optH->addWidget(chkReels); optH->addWidget(chkShorts);
-        
-        optH->addStretch(); l->addLayout(optH);
-        
-        connect(rbBlock, &QRadioButton::toggled, [=](){ useAllowMode = rbAllow->isChecked(); SaveAllData(); });
-        connect(chkReels, &QCheckBox::clicked, [=](bool c){ blockReels = c; SaveAllData(); SyncTogglesToFirebase(); });
-        connect(chkShorts, &QCheckBox::clicked, [=](bool c){ blockShorts = c; SaveAllData(); SyncTogglesToFirebase(); });
-        connect(chkAdblock, &QCheckBox::clicked, [=](bool c){ isAdblockActive = c; ToggleAdBlock(c); SaveAllData(); SyncTogglesToFirebase(); });
-
-        // --- BOTTOM ROW: The Three Lists ---
-        QGridLayout* gl = new QGridLayout(); gl->setSpacing(15);
-        QString btnSt = "background-color: #3B82F6; color: white; padding: 5px 15px; font-size: 13px;";
-        QString lsSt = "QListWidget { background: #FFFFFF; border: 1px solid #CBD5E1; } QListWidget::item { padding: 5px; color: #000000; font-weight:bold; border-bottom: 1px solid #F1F5F9;}";
-        
-        auto makeBox = [&](QString title, QComboBox*& cbA, QListWidget*& lA, QComboBox*& cbW, QListWidget*& lW, int col) {
-            gl->addWidget(new QLabel("<b>" + title + " Apps (e.g., vlc.exe):</b>"), 0, col);
-            QHBoxLayout* h1x = new QHBoxLayout(); 
-            cbA = new QComboBox(); cbA->setEditable(true); cbA->setFixedWidth(150);
-            QPushButton* bAddA = new QPushButton("ADD"); bAddA->setStyleSheet(btnSt);
-            h1x->addWidget(cbA); h1x->addWidget(bAddA); gl->addLayout(h1x, 1, col);
-            lA = new QListWidget(); lA->setStyleSheet(lsSt); gl->addWidget(lA, 2, col);
-            
-            gl->addWidget(new QLabel("<b>" + title + " Websites:</b>"), 3, col);
-            QHBoxLayout* h2x = new QHBoxLayout(); 
-            cbW = new QComboBox(); cbW->setEditable(true); cbW->setFixedWidth(150); // FIXED: Initialized cbW properly
-            QPushButton* bAddW = new QPushButton("ADD"); bAddW->setStyleSheet(btnSt);
-            h2x->addWidget(cbW); h2x->addWidget(bAddW); gl->addLayout(h2x, 4, col);
-            lW = new QListWidget(); lW->setStyleSheet(lsSt); gl->addWidget(lW, 5, col);
-            
-            QPushButton* btnRem = new QPushButton("Remove"); btnRem->setStyleSheet("background-color: #3B82F6; color: white; padding: 8px; font-size: 14px;");
-            gl->addWidget(btnRem, 6, col);
-            
-            connect(bAddA, &QPushButton::clicked, [=](){ QString t = cbA->currentText().trimmed().toLower(); if(!t.isEmpty()){ if(!t.endsWith(".exe")) t += ".exe"; lA->addItem(t); cbA->setCurrentText(""); SyncListsFromUI(); } });
-            connect(bAddW, &QPushButton::clicked, [=](){ QString t = cbW->currentText().trimmed().toLower(); if(!t.isEmpty()){ lW->addItem(t); cbW->setCurrentText(""); SyncListsFromUI(); } });
-            connect(btnRem, &QPushButton::clicked, [=](){ if(lA->currentItem()) delete lA->takeItem(lA->currentRow()); if(lW->currentItem()) delete lW->takeItem(lW->currentRow()); SyncListsFromUI(); });
-        };
-        
-        makeBox("Block", cbBlockApp, listBlockApp, cbBlockWeb, listBlockWeb, 0); // FIXED
-        
-        QVBoxLayout* midL = new QVBoxLayout();
-        midL->addWidget(new QLabel("<b>Running Apps (Auto-Detected):</b>"));
-        QPushButton* bRun = new QPushButton("Add Selected App to List"); bRun->setStyleSheet(btnSt); midL->addWidget(bRun);
-        listRunning = new QListWidget(); listRunning->setStyleSheet(lsSt); midL->addWidget(listRunning);
-        gl->addLayout(midL, 0, 1, 7, 1);
-        connect(bRun, &QPushButton::clicked, [=](){ if(!listRunning->currentItem()) return; QString app = listRunning->currentItem()->text().trimmed().toLower(); if(!app.endsWith(".exe")) app += ".exe"; if(useAllowMode) { listAllowApp->addItem(app); } else { listBlockApp->addItem(app); } SyncListsFromUI(); });
-        
-        makeBox("Allow", cbAllowApp, listAllowApp, cbAllowWeb, listAllowWeb, 2); // FIXED
-        
-        l->addLayout(gl);
-        stack->addWidget(page);
-
-        QStringList popSites = {"facebook.com", "youtube.com", "instagram.com", "tiktok.com"};
-        cbBlockWeb->addItems(popSites); cbBlockWeb->setCurrentText(""); // FIXED
-        cbAllowWeb->addItems(popSites); cbAllowWeb->setCurrentText(""); // FIXED
-    }
-
-    void RefreshAppDropdowns() {
-        QStringList apps = GetRunningAppsUI();
-        if(cbBlockApp) { cbBlockApp->clear(); cbBlockApp->addItem("Select.."); cbBlockApp->addItems(apps); cbBlockApp->setCurrentIndex(0); }
-        if(cbAllowApp) { cbAllowApp->clear(); cbAllowApp->addItem("Select.."); cbAllowApp->addItems(apps); cbAllowApp->setCurrentIndex(0); }
-        if(listRunning) { listRunning->clear(); listRunning->addItems(apps); }
-    }
-
-    void setupSchedulePage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(60, 60, 60, 60);
-        QLabel* title = new QLabel("Schedule (Coming Soon)"); title->setStyleSheet("font-size: 28px; font-weight: bold; color: #15AABF;");
-        l->addWidget(title); l->addStretch(); stack->addWidget(page);
-    }
-
-    void setupAdvancedPage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(50, 50, 50, 50);
-        QLabel* title = new QLabel("Advanced Restrictions"); title->setStyleSheet("font-size: 26px; font-weight: bold; margin-bottom: 10px; color: #0F172A;"); l->addWidget(title);
-        l->addStretch(); stack->addWidget(page);
-    }
-
-    void setupToolsPage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(0,0,0,0);
-        
-        QFrame* topFrame = new QFrame(); topFrame->setStyleSheet("background-color: #15AABF; border: none; border-radius: 0px;"); topFrame->setFixedHeight(300);
-        QVBoxLayout* tL = new QVBoxLayout(topFrame); tL->setAlignment(Qt::AlignCenter); tL->setSpacing(10);
-        QLabel* title = new QLabel("Next break in:"); title->setStyleSheet("color: white; font-weight: bold; font-size: 18px; background: transparent; border: none;"); title->setAlignment(Qt::AlignCenter);
-        lblPomoTime = new QLabel("00:00:00"); 
-        lblPomoTime->setStyleSheet("color: white; font-size: 100px; font-family: 'Segoe UI Light', Arial; background: transparent; border: none;"); 
-        lblPomoTime->setAlignment(Qt::AlignCenter);
-        
-        bPStart = new QPushButton("START"); bPStart->setFixedSize(220, 55); bPStart->setStyleSheet("background-color: #FF4D4D; color: white; font-weight: bold; font-size: 20px; border-radius: 27px; border: none;");
-        tL->addWidget(title); tL->addWidget(lblPomoTime); tL->addWidget(bPStart, 0, Qt::AlignCenter);
-        l->addWidget(topFrame);
-        
-        QFrame* botFrame = new QFrame(); QVBoxLayout* bL = new QVBoxLayout(botFrame); bL->setContentsMargins(60, 40, 60, 40); bL->setSpacing(25);
-        
-        QHBoxLayout* h1 = new QHBoxLayout(); h1->addWidget(new QLabel("Pomodoro Focus Length")); pomoMin = new QSpinBox(); pomoMin->setValue(25); pomoMin->setSuffix(" Minutes"); h1->addWidget(pomoMin); bL->addLayout(h1);
-        QHBoxLayout* h2 = new QHBoxLayout(); h2->addWidget(new QLabel("Total Sessions")); pomoSes = new QSpinBox(); pomoSes->setValue(4); h2->addWidget(pomoSes); bL->addLayout(h2);
-        
-        bPStop = new QPushButton("Stop Timer"); bPStop->setStyleSheet("background: transparent; color: #EF4444; text-decoration: underline; font-weight: bold; font-size: 16px; border: none;"); bL->addWidget(bPStop, 0, Qt::AlignCenter);
-        lblPomoStatus = new QLabel("Ready"); lblPomoStatus->setAlignment(Qt::AlignCenter); lblPomoStatus->setStyleSheet("font-size: 16px; font-weight:bold; color: #64748B; border: none; background: transparent;"); bL->addWidget(lblPomoStatus);
-        
-        QFrame* line = new QFrame(); line->setFrameShape(QFrame::HLine); line->setStyleSheet("color: #E2E8F0;"); bL->addWidget(line);
-        bL->addWidget(new QLabel("<b>Eye Focus Filters</b>"));
-        sliderBright = new QSlider(Qt::Horizontal); sliderBright->setRange(10, 100); sliderBright->setValue(100); sliderBright->setStyleSheet("QSlider::handle:horizontal { background: #15AABF; width: 20px; border-radius: 10px; margin: -8px 0; } QSlider::groove:horizontal { background: #E2E8F0; height: 5px; border-radius: 2px; }");
-        sliderWarm = new QSlider(Qt::Horizontal); sliderWarm->setRange(0, 100); sliderWarm->setValue(0); sliderWarm->setStyleSheet("QSlider::handle:horizontal { background: #F59E0B; width: 20px; border-radius: 10px; margin: -8px 0; } QSlider::groove:horizontal { background: #E2E8F0; height: 5px; border-radius: 2px; }");
-        bL->addWidget(new QLabel("Brightness")); bL->addWidget(sliderBright); bL->addWidget(new QLabel("Warmth")); bL->addWidget(sliderWarm);
-        
-        l->addWidget(botFrame); l->addStretch(); stack->addWidget(page);
-        
-        connect(bPStart, &QPushButton::clicked, [=](){ 
-            if(!isSessionActive && !isTrialExpired) { 
-                pomoLengthMin = pomoMin->value(); pomoTotalSessions = pomoSes->value(); isPomodoroMode = true; isSessionActive = true; pomoTicks = 0; pomoCurrentSession = 1; SaveAllData(); updateUIStates(); new ToastNotification("🍅 Pomodoro Started!", this); 
-                if (chkFocusSound && chkFocusSound->isChecked()) ManageFocusSound(true); 
-            } 
-        });
-        connect(bPStop, &QPushButton::clicked, [=](){ if(isPomodoroMode) { ClearSessionData(); updateUIStates(); new ToastNotification("🛑 Pomodoro Stopped!", this); } });
-        connect(sliderBright, &QSlider::valueChanged, [=](int v){ eyeBrightness = v; ApplyEyeFilters(); SaveAllData(); }); connect(sliderWarm, &QSlider::valueChanged, [=](int v){ eyeWarmth = v; ApplyEyeFilters(); SaveAllData(); });
-    }
-
-    void setupSettingsPage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(50, 50, 50, 50);
-        QLabel* title = new QLabel("Settings & Theme"); title->setStyleSheet("font-size: 26px; font-weight: bold; margin-bottom: 25px; color: #15AABF;"); l->addWidget(title);
-        
-        QFrame* themeCard = createCard(); QVBoxLayout* tl = new QVBoxLayout(themeCard); tl->setContentsMargins(40, 40, 40, 40);
-        ToggleSwitch* chkDark = new ToggleSwitch(" Enable Dark Mode"); chkDark->setChecked(isDarkMode);
-        connect(chkDark, &QCheckBox::clicked, [=](bool c){ isDarkMode = c; applyTheme(); });
-        tl->addWidget(chkDark); l->addWidget(themeCard);
-        
-        l->addSpacing(30);
-        QPushButton* bOpenSw = new QPushButton("Open Floating Stopwatch"); bOpenSw->setStyleSheet("background: #15AABF; color: white; padding: 15px 30px; font-weight: bold; border-radius: 8px; font-size: 16px;");
-        l->addWidget(bOpenSw, 0, Qt::AlignLeft);
-        connect(bOpenSw, &QPushButton::clicked, [=](){ if(!swWindow) swWindow = new StopwatchWindow(); swWindow->showNormal(); swWindow->activateWindow(); });
-        
-        l->addStretch(); stack->addWidget(page);
-    }
-
-    void setupChatPage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(50, 50, 50, 50);
-        QLabel* title = new QLabel("Live Chat Support"); title->setStyleSheet("font-size: 26px; font-weight: bold; color: #15AABF; margin-bottom: 20px;"); l->addWidget(title);
-        QFrame* chatCard = createCard(); QVBoxLayout* cl = new QVBoxLayout(chatCard); cl->setContentsMargins(30, 30, 30, 30);
-        chatLog = new QTextEdit(); chatLog->setReadOnly(true); chatLog->setStyleSheet("border: none; background: transparent; font-size: 16px;"); cl->addWidget(chatLog);
-        QFrame* line = new QFrame(); line->setFrameShape(QFrame::HLine); line->setStyleSheet("color: #E2E8F0;"); cl->addWidget(line);
-        QHBoxLayout* ch = new QHBoxLayout(); chatIn = new QLineEdit(); chatIn->setPlaceholderText("Type message..."); chatIn->setStyleSheet("border: none; background: transparent; font-size: 16px;"); ch->addWidget(chatIn);
-        QPushButton* bSend = new QPushButton("Send"); bSend->setStyleSheet("background: #15AABF; color: white; font-weight: bold; padding: 0 30px; font-size: 16px;"); ch->addWidget(bSend);
-        cl->addLayout(ch); l->addWidget(chatCard);
-        connect(bSend, &QPushButton::clicked, [=](){ QString msg = chatIn->text().trimmed(); if(!msg.isEmpty()) { chatLog->append("<b style='color:#15AABF;'>You:</b> " + msg); chatIn->clear(); QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=liveChatUser&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ liveChatUser = @{ stringValue = '" + msg + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); } });
-        stack->addWidget(page);
-    }
-    
-    void setupUpgradePage() {
-        QWidget* page = new QWidget(); QVBoxLayout* l = new QVBoxLayout(page); l->setContentsMargins(50, 50, 50, 50);
-        QLabel* title = new QLabel("Premium Upgrade"); title->setStyleSheet("font-size: 28px; font-weight: bold; color: #F59E0B; margin-bottom: 10px;"); l->addWidget(title);
-        l->addWidget(new QLabel("Send payment via Nagad/bKash to <b>01566054963</b> and submit the form below.")); l->addSpacing(30);
-        QFrame* formCard = createCard(); QVBoxLayout* fl = new QVBoxLayout(formCard); fl->setContentsMargins(40, 40, 40, 40); fl->setSpacing(20);
-        fl->addWidget(new QLabel("Email / Name:")); upgEmail = new QLineEdit(); fl->addWidget(upgEmail);
-        fl->addWidget(new QLabel("Sender Number:")); upgPhone = new QLineEdit(); fl->addWidget(upgPhone);
-        fl->addWidget(new QLabel("TrxID:")); upgTrx = new QLineEdit(); fl->addWidget(upgTrx);
-        fl->addWidget(new QLabel("Package:")); upgPkg = new QComboBox(); upgPkg->addItems({"7 Days Trial", "6 Months (50 BDT)", "1 Year (100 BDT)"}); fl->addWidget(upgPkg);
-        QPushButton* bSub = new QPushButton("SUBMIT"); bSub->setStyleSheet("background: #10B981; color: white; padding: 15px; font-weight: bold; font-size: 16px;"); fl->addWidget(bSub);
-        l->addWidget(formCard);
-        connect(bSub, &QPushButton::clicked, [=](){ if(upgEmail->text().isEmpty() || upgPhone->text().isEmpty() || upgTrx->text().isEmpty()) { new ToastNotification("⚠️ Fill all fields!", this); return; } QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ deviceID = @{ stringValue = '" + dId + "' }; status = @{ stringValue = 'PENDING' }; package = @{ stringValue = '" + upgPkg->currentText() + "' }; userEmail = @{ stringValue = '" + upgEmail->text() + "' }; senderPhone = @{ stringValue = '" + upgPhone->text() + "' }; trxId = @{ stringValue = '" + upgTrx->text() + "' }; adminMessage = @{ stringValue = '' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); new ToastNotification("✅ Request Sent!", this); });
-        l->addStretch(); stack->addWidget(page);
-    }
-
-    void setupTray() {
-        QString iconPath = QCoreApplication::applicationDirPath() + "/icon.ico"; QIcon icon;
-        if(QFile::exists(iconPath)) { icon = QIcon(iconPath); } else { QPixmap pix(32, 32); pix.fill(Qt::transparent); QPainter p(&pix); p.setRenderHint(QPainter::Antialiasing); p.setBrush(QColor("#15AABF")); p.drawEllipse(2, 2, 28, 28); p.setPen(Qt::white); p.setFont(QFont("Segoe UI", 12, QFont::Bold)); p.drawText(pix.rect(), Qt::AlignCenter, "RF"); icon = QIcon(pix); }
-        trayIcon = new QSystemTrayIcon(icon, this);
-        connect(trayIcon, &QSystemTrayIcon::activated, [=](QSystemTrayIcon::ActivationReason r){ if(r == QSystemTrayIcon::Trigger || r == QSystemTrayIcon::DoubleClick) { showNormal(); raise(); activateWindow(); } });
-        trayIcon->show();
-    }
-
-    void onStartFocus() {
-        if(isSessionActive) return; QString p = editPass->text(); int tSec = (spinHr->value() * 3600) + (spinMin->value() * 60);
-        if(p.isEmpty() && tSec == 0) { new ToastNotification("⚠️ Set Password or Time!", this); return; }
-        useAllowMode = rbAllow->isChecked();
-        if(!p.isEmpty()) { isPassMode = true; currentSessionPass = p; SyncPasswordToFirebase(p, true); } else { isTimeMode = true; focusTimeTotalSeconds = tSec; timerTicks = 0; }
-        
-        isSessionActive = true; editPass->clear(); SaveAllData(); updateUIStates(); 
-        
-        if(chkFocusSound && chkFocusSound->isChecked()) ManageFocusSound(true);
-
-        new ToastNotification("🔒 Focus Mode Active.", this); QTimer::singleShot(1500, this, &QWidget::hide);
-    }
-    
-    void onStopFocus() {
-        if(!isSessionActive) return;
-        if(isTimeMode) { new ToastNotification("⚠️ Time mode active!", this); return; }
-        if(isPassMode && editPass->text() == currentSessionPass) { 
-            ClearSessionData(); SyncPasswordToFirebase("", false); 
-            new ToastNotification("✅ Session Stopped.", this); 
-        } 
-        else { new ToastNotification("❌ Wrong Password!", this); }
-    }
-
-    QStringList GetRunningAppsUI() {
-        QStringList p; HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); PROCESSENTRY32W pe = {sizeof(pe)};
-        if(Process32FirstW(h, &pe)) { do { QString n = QString::fromWCharArray(pe.szExeFile).toLower(); if(!systemApps.contains(n)) p << n; } while(Process32NextW(h, &pe)); } CloseHandle(h); p.removeDuplicates(); p.sort(Qt::CaseInsensitive); return p;
-    }
-
-    void SyncListsFromUI() { 
-        QStringList bA, bW, aA, aW;
-        for(int i=0; i<listBlockApp->count(); ++i) bA << listBlockApp->item(i)->text();
-        for(int i=0; i<listBlockWeb->count(); ++i) bW << listBlockWeb->item(i)->text();
-        for(int i=0; i<listAllowApp->count(); ++i) aA << listAllowApp->item(i)->text();
-        for(int i=0; i<listAllowWeb->count(); ++i) aW << listAllowWeb->item(i)->text();
-        blockedApps = bA; blockedWebs = bW; allowedApps = aA; allowedWebs = aW; 
-        SaveAllData(); 
-    }
-
-    void LoadAllData() {
-        auto lF = [](QString fn, QStringList& l, QListWidget* lw) { 
-            QFile f(GetSecretDir() + fn); 
-            if(f.open(QIODevice::ReadOnly|QIODevice::Text)) { 
-                QTextStream in(&f); 
-                while(!in.atEnd()) { 
-                    QString v=in.readLine().trimmed(); 
-                    if(!v.isEmpty()){ l<<v; lw->addItem(v); } 
-                } f.close(); 
-            } 
-        };
-        lF("bl_app.dat", blockedApps, listBlockApp); lF("bl_web.dat", blockedWebs, listBlockWeb); lF("al_app.dat", allowedApps, listAllowApp); lF("al_web.dat", allowedWebs, listAllowWeb); 
-        
-        QFile f(GetSecretDir() + "session.dat");
-        if(f.open(QIODevice::ReadOnly|QIODevice::Text)) {
-            QTextStream in(&f); int a=0, tm=0, pm=0, ua=0, po=0, pb=0, br=0, bs=0, ad=0, pc=1;
-            in >> a >> tm >> pm >> currentSessionPass >> focusTimeTotalSeconds >> timerTicks >> ua >> po >> pb >> pomoTicks >> eyeBrightness >> eyeWarmth >> br >> bs >> ad >> pc;
-            userProfileName = in.readLine().trimmed(); if(userProfileName.isEmpty()) userProfileName = in.readLine().trimmed(); 
-            isSessionActive=(a==1); isTimeMode=(tm==1); isPassMode=(pm==1); useAllowMode=(ua==1); isPomodoroMode=(po==1); isPomodoroBreak=(pb==1); pomoCurrentSession=pc; blockReels=(br==1); blockShorts=(bs==1); isAdblockActive=(ad==1);
-            rbAllow->setChecked(useAllowMode); chkReels->setChecked(blockReels); chkShorts->setChecked(blockShorts); chkAdblock->setChecked(isAdblockActive); sliderBright->setValue(eyeBrightness); sliderWarm->setValue(eyeWarmth); editName->setText(userProfileName); f.close();
-        } updateUIStates();
-        RefreshAppDropdowns(); 
-    }
-
-    void SaveAllData() {
-        auto sF = [](QString fn, const QStringList& l) { QFile f(GetSecretDir() + fn); if(f.open(QIODevice::WriteOnly|QIODevice::Text)) { QTextStream out(&f); for(auto i:l) out<<i<<"\n"; f.close(); } };
-        sF("bl_app.dat", blockedApps); sF("bl_web.dat", blockedWebs); sF("al_app.dat", allowedApps); sF("al_web.dat", allowedWebs);
-        QFile f(GetSecretDir() + "session.dat");
-        if(f.open(QIODevice::WriteOnly|QIODevice::Text)) { QTextStream out(&f); out << (isSessionActive?1:0) << " " << (isTimeMode?1:0) << " " << (isPassMode?1:0) << " " << currentSessionPass << " " << focusTimeTotalSeconds << " " << timerTicks << " " << (useAllowMode?1:0) << " " << (isPomodoroMode?1:0) << " " << (isPomodoroBreak?1:0) << " " << pomoTicks << " " << eyeBrightness << " " << eyeWarmth << " " << (blockReels?1:0) << " " << (blockShorts?1:0) << " " << (isAdblockActive?1:0) << " " << pomoCurrentSession << "\n" << userProfileName << "\n"; f.close(); }
-    }
-
-    void ClearSessionData() {
-        isSessionActive = isTimeMode = isPassMode = isPomodoroMode = isPomodoroBreak = false; currentSessionPass = ""; focusTimeTotalSeconds = timerTicks = pomoTicks = 0; pomoCurrentSession = 1;
-        lblStatus->setText(""); SaveAllData(); updateUIStates(); ManageFocusSound(false); 
-    }
-
-    void updateUIStates() {
-        btnStart->setEnabled(!isSessionActive); btnStop->setEnabled(isSessionActive);
-        editPass->setEnabled(!isSessionActive); spinHr->setEnabled(!isSessionActive); spinMin->setEnabled(!isSessionActive);
-        pomoMin->setEnabled(!isSessionActive); pomoSes->setEnabled(!isSessionActive); bPStart->setEnabled(!isSessionActive); bPStop->setEnabled(isSessionActive);
-        rbBlock->setEnabled(!isSessionActive); rbAllow->setEnabled(!isSessionActive); 
-        if(chkFocusSound) chkFocusSound->setEnabled(!isSessionActive);
-        if(cbBlockApp) cbBlockApp->setEnabled(!isSessionActive); if(cbBlockWeb) cbBlockWeb->setEnabled(!isSessionActive); // FIXED: Using correct variables
-        if(cbAllowApp) cbAllowApp->setEnabled(!isSessionActive); if(cbAllowWeb) cbAllowWeb->setEnabled(!isSessionActive); // FIXED: Using correct variables
-        if(listBlockApp) listBlockApp->setEnabled(!isSessionActive); if(listBlockWeb) listBlockWeb->setEnabled(!isSessionActive);
-        if(listAllowApp) listAllowApp->setEnabled(!isSessionActive); if(listAllowWeb) listAllowWeb->setEnabled(!isSessionActive);
-        if(isSessionActive) lblStatus->setText("🔒 Focus Active."); else lblStatus->setText("");
-    }
-
-    void SyncProfileNameToFirebase(QString name) { QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=profileName&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ profileName = @{ stringValue = '" + name + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
-    void SyncPasswordToFirebase(QString pass, bool isLocking) { QString dId = GetDeviceID(); QString val = isLocking ? pass : ""; QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=livePassword&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ livePassword = @{ stringValue = '" + val + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
-    void SyncTogglesToFirebase() { QString dId = GetDeviceID(); QString bR = blockReels ? "$true" : "$false", bS = blockShorts ? "$true" : "$false", bA = isAdblockActive ? "$true" : "$false"; QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=fbReelsBlock&updateMask.fieldPaths=ytShortsBlock&updateMask.fieldPaths=adBlock&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ fbReelsBlock = @{ booleanValue = " + bR + " }; ytShortsBlock = @{ booleanValue = " + bS + " }; adBlock = @{ booleanValue = " + bA + " } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
-    void SyncLiveTrackerToFirebase() {
-        QString dId = GetDeviceID(); QString mode = "None"; QString timeL = "00:00"; QString activeStr = isSessionActive ? "$true" : "$false";
-        if (isSessionActive) {
-            if(isPomodoroMode) { mode = "Pomodoro"; int l = (pomoLengthMin*60) - pomoTicks; if(isPomodoroBreak) l = (2*60) - pomoTicks; if(l<0) l=0; timeL = QString("%1:%2").arg(l/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0')); }
-            else if(isTimeMode) { mode = "Timer"; int l = focusTimeTotalSeconds - timerTicks; if(l<0) l=0; timeL = QString("%1:%2").arg(l/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0')); }
-            else if(isPassMode) { mode = "Password"; timeL = "Manual Lock"; }
+LRESULT CALLBACK StopwatchProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
+        case WM_CREATE: {
+            HFONT hFontBig = CreateFont(60,0,0,0,FW_BOLD,0,0,0,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, "Consolas");
+            hSwTxt = CreateWindow("STATIC", "00:00:00.00", WS_VISIBLE|WS_CHILD|SS_CENTER, 0, 50, 400, 70, hwnd, NULL, NULL, NULL);
+            SendMessage(hSwTxt, WM_SETFONT, (WPARAM)hFontBig, TRUE);
+            hBtnSwStart = CreateWindow("BUTTON", "START / PAUSE", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 50, 150, 140, 45, hwnd, (HMENU)1, NULL, NULL);
+            hBtnSwReset = CreateWindow("BUTTON", "RESET", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 210, 150, 140, 45, hwnd, (HMENU)2, NULL, NULL);
+            SetTimer(hwnd, 10, 30, NULL); return 0;
         }
-        QString usageStr = ""; for(auto i = usageStats.constBegin(); i != usageStats.constEnd(); ++i) { if(i.value() > 60) { usageStr += QString("%1: %2m | ").arg(i.key()).arg(i.value()/60); } } if(usageStr.isEmpty()) usageStr = "No app usage yet.";
-        QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=isSelfControlActive&updateMask.fieldPaths=activeModeType&updateMask.fieldPaths=timeRemaining&updateMask.fieldPaths=appUsageSummary&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ isSelfControlActive = @{ booleanValue = " + activeStr + " }; activeModeType = @{ stringValue = '" + mode + "' }; timeRemaining = @{ stringValue = '" + timeL + "' }; appUsageSummary = @{ stringValue = '" + usageStr + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'");
-    }
-
-    void ValidateLicenseAndTrial() {
-        QString dId = GetDeviceID(); HINTERNET hInternet = InternetOpenA("RasFocus", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
-        if (hInternet) {
-            DWORD timeout = 4000; InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout)); InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-            QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
-            HINTERNET hConnect = InternetOpenUrlA(hInternet, url.toStdString().c_str(), NULL, 0, INTERNET_FLAG_RELOAD, 0);
-            if (hConnect) {
-                char buffer[1024]; DWORD bytesRead; QString response = "";
-                while (InternetReadFile(hConnect, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) { buffer[bytesRead] = '\0'; response += buffer; } InternetCloseHandle(hConnect);
-                QString fbPackage = "7 Days Trial"; int pkgPos = response.indexOf("\"package\""); if (pkgPos != -1) { int valPos = response.indexOf("\"stringValue\": \"", pkgPos); if (valPos != -1) { valPos += 16; int endPos = response.indexOf("\"", valPos); if (endPos != -1) fbPackage = response.mid(valPos, endPos - valPos); } }
-                QString trialFile = GetSecretDir() + "sys_lic.dat"; QFile in(trialFile); time_t activationTime = 0; QString savedPackage = "7 Days Trial";
-                if (in.open(QIODevice::ReadOnly|QIODevice::Text)) { QTextStream inStream(&in); inStream >> activationTime; savedPackage = inStream.readLine().trimmed(); in.close(); } else { activationTime = time(0); savedPackage = fbPackage; QFile out(trialFile); if(out.open(QIODevice::WriteOnly|QIODevice::Text)){ QTextStream outStream(&out); outStream << activationTime << " " << savedPackage; out.close(); } }
-                int totalDays = (savedPackage.contains("1 Year")) ? 365 : ((savedPackage.contains("6 Months")) ? 180 : 7); double daysPassed = difftime(time(0), activationTime) / 86400.0; trialDaysLeft = totalDays - (int)daysPassed;
-                bool explicitlyRevoked = response.contains("\"stringValue\": \"REVOKED\""); bool explicitlyApproved = response.contains("\"stringValue\": \"APPROVED\"");
-                if (explicitlyRevoked) { isLicenseValid = false; isTrialExpired = true; trialDaysLeft = 0; } else { if (trialDaysLeft <= 0) { isTrialExpired = true; trialDaysLeft = 0; isLicenseValid = false; } else { isTrialExpired = false; isLicenseValid = explicitlyApproved; } }
-                auto parseBool = [&](QString fName, bool defaultVal) { int pos = response.indexOf("\"" + fName + "\""); if(pos != -1) { int vPos = response.indexOf("\"booleanValue\":", pos); if(vPos != -1) { if(response.indexOf("true", vPos) < response.indexOf("}", vPos)) return true; if(response.indexOf("false", vPos) < response.indexOf("}", vPos)) return false; } } return defaultVal; };
-                
-                blockAdult = parseBool("adultBlock", true);
-                
-                int msgPos = response.indexOf("\"adminMessage\""); if (msgPos != -1) { int valPos = response.indexOf("\"stringValue\": \"", msgPos); if (valPos != -1) { valPos += 16; int endPos = response.indexOf("\"", valPos); if(endPos != -1) safeAdminMsg = response.mid(valPos, endPos - valPos); } }
-                int cmdPos = response.indexOf("\"adminCmd\""); if (cmdPos != -1) { int vPos = response.indexOf("\"stringValue\": \"", cmdPos); if (vPos != -1) { vPos += 16; int ePos = response.indexOf("\"", vPos); QString cmd = response.mid(vPos, ePos - vPos); if (cmd == "START_FOCUS" && !isSessionActive) { pendingAdminCmd = 1; } else if (cmd == "STOP_FOCUS" && isSessionActive) { pendingAdminCmd = 2; } } }
-                int bcastPos = response.indexOf("\"broadcastMsg\""); if (bcastPos != -1) { int vPos = response.indexOf("\"stringValue\": \"", bcastPos); if (vPos != -1) { vPos += 16; int ePos = response.indexOf("\"", vPos); QString bMsg = response.mid(vPos, ePos - vPos); if (!bMsg.isEmpty() && bMsg != "ACK" && bMsg != currentBroadcastMsg) pendingBroadcastMsg = bMsg; } }
-                int chatPos = response.indexOf("\"liveChatAdmin\""); if (chatPos != -1) { int cvPos = response.indexOf("\"stringValue\": \"", chatPos); if (cvPos != -1) { cvPos += 16; int cePos = response.indexOf("\"", cvPos); QString adminChatStr = response.mid(cvPos, cePos - cvPos); if (!adminChatStr.isEmpty() && adminChatStr != lastAdminChat) { lastAdminChat = adminChatStr; pendingAdminChatStr = adminChatStr; } } }
-            } InternetCloseHandle(hInternet);
-        } else { isLicenseValid = !isTrialExpired; }
-    }
-
-    void TrackUsage() {
-        if(GetTickCount() - lastUsageUpdate < 1000) return; lastUsageUpdate = GetTickCount();
-        HWND hActive = GetForegroundWindow(); if(!hActive || (overlayWidget && hActive == (HWND)overlayWidget->winId())) return;
-        WCHAR title[512];
-        if(GetWindowTextW(hActive, title, 512) > 0) {
-            QString sTitle = QString::fromWCharArray(title).toLower();
-            if(sTitle.contains("facebook")) usageStats["Facebook"]++; else if(sTitle.contains("youtube")) usageStats["YouTube"]++; else if(sTitle.contains("instagram")) usageStats["Instagram"]++;
-            else { DWORD activePid; GetWindowThreadProcessId(hActive, &activePid); HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, activePid); if(ph){ WCHAR ex[MAX_PATH]; DWORD sz = MAX_PATH; if(QueryFullProcessImageNameW(ph, 0, ex, &sz)){ QString p = QString::fromWCharArray(ex); QString exe = p.mid(p.lastIndexOf('\\')+1); usageStats[exe]++; } CloseHandle(ph); } }
+        case WM_TIMER: {
+            if(wParam == 10 && swRunning) {
+                swElapsed = GetTickCount() - swStart;
+                DWORD totalS = swElapsed / 1000; DWORD ms = (swElapsed % 1000) / 10;
+                DWORD h = totalS / 3600; DWORD m = (totalS % 3600) / 60; DWORD s = totalS % 60;
+                char buf[32]; sprintf(buf, "%02d:%02d:%02d.%02d", h, m, s, ms); SetWindowText(hSwTxt, buf);
+            } break;
         }
-    }
+        case WM_DRAWITEM: { 
+            LPDRAWITEMSTRUCT p=(LPDRAWITEMSTRUCT)lParam; COLORREF c = colBtnGray; 
+            if(p->CtlID == 1) c = swRunning ? colBtnRed : colBtnGreen; 
+            HBRUSH br=CreateSolidBrush(c); SelectObject(p->hDC, br); RoundRect(p->hDC, p->rcItem.left, p->rcItem.top, p->rcItem.right, p->rcItem.bottom, 8, 8); 
+            char t[256]; GetWindowText(p->hwndItem, t, 256); SetTextColor(p->hDC, RGB(255,255,255)); SetBkMode(p->hDC, TRANSPARENT); DrawText(p->hDC, t, -1, &p->rcItem, DT_CENTER|DT_VCENTER|DT_SINGLELINE); DeleteObject(br); return TRUE; 
+        }
+        case WM_CTLCOLORSTATIC: { SetBkMode((HDC)wParam, TRANSPARENT); SetTextColor((HDC)wParam, colTextDark); return (LRESULT)hbrBg; }
+        case WM_COMMAND: {
+            if(LOWORD(wParam)==1) { swRunning = !swRunning; if(swRunning) swStart = GetTickCount() - swElapsed; InvalidateRect(hwnd, NULL, TRUE); }
+            if(LOWORD(wParam)==2) { swRunning = false; swElapsed = 0; SetWindowText(hSwTxt, "00:00:00.00"); InvalidateRect(hwnd, NULL, TRUE); }
+            break;
+        }
+        case WM_CLOSE: { ShowWindow(hwnd, SW_HIDE); return 0; }
+    } return DefWindowProc(hwnd, msg, wParam, lParam);
+}
 
-    void fastLoop() { 
-        if(!blockAdult && !blockReels && !blockShorts && !isSessionActive) return; if(isOverlayVisible) return;
-        HWND hActive = GetForegroundWindow();
-        if(hActive && (!overlayWidget || hActive != (HWND)overlayWidget->winId())) {
-            WCHAR title[512];
-            if(GetWindowTextW(hActive, title, 512) > 0) {
-                QString sTitle = QString::fromWCharArray(title).toLower();
-                if(blockAdult) { for(const QString& kw : explicitKeywords) { if(sTitle.contains(kw)) { CloseActiveTabAndMinimize(hActive); ShowCustomOverlay(1); return; } } }
-                if(blockReels && sTitle.contains("facebook") && (sTitle.contains("reels") || sTitle.contains("video") || sTitle.contains("watch"))) { CloseActiveTabAndMinimize(hActive); ShowCustomOverlay(2); return; }
-                if(blockShorts && sTitle.contains("youtube") && sTitle.contains("shorts")) { CloseActiveTabAndMinimize(hActive); ShowCustomOverlay(2); return; }
-                if(isSessionActive) {
-                    bool isBrowser = sTitle.contains("chrome") || sTitle.contains("edge") || sTitle.contains("firefox") || sTitle.contains("brave") || sTitle.contains("opera") || sTitle.contains("vivaldi") || sTitle.contains("yandex") || sTitle.contains("safari");
-                    if(isBrowser) {
-                        if(useAllowMode) {
-                            bool ok = false; for(const QString& w : allowedWebs) { if(CheckMatch(w, sTitle)) { ok=true; break; } }
-                            if(!ok && !sTitle.contains("allowed websites")) { 
-                                CloseActiveTabAndMinimize(hActive); QString p = GetSecretDir() + "allowed_sites.html"; QFile f(p); 
-                                if(f.open(QIODevice::WriteOnly)){ 
-                                    QTextStream out(&f); 
-                                    out<<"<html><head><title>Allowed Websites</title></head><body style='text-align:center; font-family:sans-serif; margin-top:50px; background-color:#F8FAFC;'><h2>Focus Mode is Active!</h2><p>You can only access the following websites:</p>"; 
-                                    for(auto x:allowedWebs) out<<"<a href='https://"<<x<<"' style='display:inline-block; margin:10px; padding:15px 25px; background:#1CB8C9; color:white; font-weight:bold; text-decoration:none; border-radius:8px;'>" << x << "</a><br>"; 
-                                    out<<"</body></html>"; f.close(); 
-                                } 
-                                QDesktopServices::openUrl(QUrl::fromLocalFile(p)); 
-                            }
-                        } else { for(const QString& w : blockedWebs) { if(CheckMatch(w, sTitle)) { CloseActiveTabAndMinimize(hActive); ShowCustomOverlay(2); return; } } }
-                    }
+LRESULT CALLBACK ExpiredProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
+        case WM_CREATE: {
+            CreateWindow("BUTTON", "CLOSE", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 30, 160, 100, 40, hwnd, (HMENU)1001, NULL, NULL); 
+            CreateWindow("BUTTON", "LIVE CHAT", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 150, 160, 150, 40, hwnd, (HMENU)1002, NULL, NULL); 
+            CreateWindow("BUTTON", "UPGRADE NOW", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 320, 160, 150, 40, hwnd, (HMENU)1003, NULL, NULL); 
+            return 0; 
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps; HDC hdc=BeginPaint(hwnd, &ps); RECT r; GetClientRect(hwnd, &r); HBRUSH br=CreateSolidBrush(RGB(30, 41, 59)); FillRect(hdc, &r, br); DeleteObject(br);
+            SetTextColor(hdc, RGB(239, 68, 68)); SetBkMode(hdc, TRANSPARENT); HFONT f=CreateFontW(28,0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, L"Segoe UI");
+            SelectObject(hdc, f); r.top+=40; DrawTextA(hdc, "LICENSE / SESSION PAUSED", -1, &r, DT_CENTER); DeleteObject(f); 
+            SetTextColor(hdc, RGB(255, 255, 255)); f=CreateFontW(16,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, L"Segoe UI");
+            SelectObject(hdc, f); r.top+=40; DrawTextA(hdc, "Your package has expired or Admin revoked your license.\nPlease upgrade or contact admin to continue using RasFocus Pro.", -1, &r, DT_CENTER); DeleteObject(f); 
+            EndPaint(hwnd, &ps); return 0;
+        }
+        case WM_DRAWITEM: { 
+            LPDRAWITEMSTRUCT p=(LPDRAWITEMSTRUCT)lParam; if(p->CtlType!=ODT_BUTTON) return DefWindowProc(hwnd, msg, wParam, lParam); 
+            COLORREF c = colBtnGray;
+            if(p->CtlID == 1002) c = RGB(236, 72, 153);
+            if(p->CtlID == 1003) c = colBtnGreen;
+            HBRUSH br=CreateSolidBrush(c); SelectObject(p->hDC, br); RoundRect(p->hDC, p->rcItem.left, p->rcItem.top, p->rcItem.right, p->rcItem.bottom, 10, 10); char t[256]; GetWindowText(p->hwndItem, t, 256); SetTextColor(p->hDC, RGB(255,255,255)); SetBkMode(p->hDC, TRANSPARENT); DrawText(p->hDC, t, -1, &p->rcItem, DT_CENTER|DT_VCENTER|DT_SINGLELINE); DeleteObject(br); return TRUE; 
+        }
+        case WM_COMMAND: {
+            if(LOWORD(wParam)==1001) { userClosedExpired = true; ShowWindow(hwnd, SW_HIDE); }
+            if(LOWORD(wParam)==1002) { userClosedExpired = true; ShowWindow(hwnd, SW_HIDE); if(hLiveChatPanel){ ShowWindow(hLiveChatPanel, SW_SHOW); SetForegroundWindow(hLiveChatPanel); } }
+            if(LOWORD(wParam)==1003) { userClosedExpired = true; ShowWindow(hwnd, SW_HIDE); if(hUpgradePanel){ ShowWindow(hUpgradePanel, SW_SHOW); SetForegroundWindow(hUpgradePanel); } }
+            break;
+        }
+    } return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK PomodoroProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
+        case WM_CREATE: {
+            HFONT hFont = CreateFont(16,0,0,0,FW_BOLD,0,0,0,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, "Segoe UI");
+            CreateWindow("STATIC", "Focus Length (Min):", WS_VISIBLE|WS_CHILD, 20, 20, 150, 20, hwnd, NULL, NULL, NULL);
+            hPomoMinEdit = CreateWindow("EDIT", "25", WS_VISIBLE|WS_CHILD|WS_BORDER|ES_NUMBER, 180, 20, 100, 25, hwnd, NULL, NULL, NULL);
+            CreateWindow("STATIC", "Total Sessions:", WS_VISIBLE|WS_CHILD, 20, 60, 150, 20, hwnd, NULL, NULL, NULL);
+            hPomoSessionEdit = CreateWindow("EDIT", "4", WS_VISIBLE|WS_CHILD|WS_BORDER|ES_NUMBER, 180, 60, 100, 25, hwnd, NULL, NULL, NULL);
+            hLblPomoStatus = CreateWindow("STATIC", "Status: Ready", WS_VISIBLE|WS_CHILD, 20, 110, 260, 25, hwnd, NULL, NULL, NULL);
+            CreateWindow("BUTTON", "START POMODORO", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 20, 150, 160, 40, hwnd, (HMENU)ID_BTN_START_POMO, NULL, NULL);
+            CreateWindow("BUTTON", "STOP", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 190, 150, 90, 40, hwnd, (HMENU)ID_BTN_STOP_POMO, NULL, NULL);
+            EnumChildWindows(hwnd, [](HWND c, LPARAM l)->BOOL{SendMessage(c,WM_SETFONT,l,TRUE);return TRUE;}, (LPARAM)hFont); return 0;
+        }
+        case WM_CTLCOLORSTATIC: { HDC hdc = (HDC)wParam; HWND hw = (HWND)lParam; SetBkMode(hdc, TRANSPARENT); if (hw == hLblPomoStatus) SetTextColor(hdc, colBtnRed); return (LRESULT)hbrBg; }
+        case WM_DRAWITEM: {
+            LPDRAWITEMSTRUCT p=(LPDRAWITEMSTRUCT)lParam; if(p->CtlType!=ODT_BUTTON) return DefWindowProc(hwnd, msg, wParam, lParam);
+            HBRUSH br=CreateSolidBrush(p->CtlID==ID_BTN_START_POMO?colBtnGreen:colBtnRed); SelectObject(p->hDC, br); RoundRect(p->hDC, p->rcItem.left, p->rcItem.top, p->rcItem.right, p->rcItem.bottom, 10, 10);
+            char t[256]; GetWindowText(p->hwndItem, t, 256); SetTextColor(p->hDC, RGB(255,255,255)); SetBkMode(p->hDC, TRANSPARENT); DrawText(p->hDC, t, -1, &p->rcItem, DT_CENTER|DT_VCENTER|DT_SINGLELINE); DeleteObject(br); return TRUE;
+        }
+        case WM_COMMAND: {
+            if(LOWORD(wParam)==ID_BTN_START_POMO && !isSessionActive && !isTrialExpired){
+                char m[10], s[10]; GetWindowText(hPomoMinEdit,m,10); GetWindowText(hPomoSessionEdit,s,10);
+                pomoLengthMin = atoi(m); pomoTotalSessions = atoi(s);
+                if(pomoLengthMin>0 && pomoTotalSessions>0){ 
+                    isPomodoroMode=true; isSessionActive=true; pomoTicks=0; pomoCurrentSession=1; 
+                    SaveSessionData(); ToggleUIElements(false); SyncPasswordToFirebase("", true); 
+                    SetTimer(hMainWnd, 1, 1000, NULL); 
+                    UpdateMainUIState();
+                    MessageBox(hwnd, "Pomodoro Started!", "Success", MB_OK); 
                 }
             }
+            if(LOWORD(wParam)==ID_BTN_STOP_POMO && isPomodoroMode){ ClearSessionData(); UpdateMainUIState(); MessageBox(hwnd, "Pomodoro Stopped.", "Success", MB_OK); }
+            break;
         }
-    }
+        case WM_CLOSE: ShowWindow(hwnd, SW_HIDE); return 0;
+    } return DefWindowProc(hwnd, msg, wParam, lParam);
+}
 
-    void slowLoop() { 
-        TrackUsage();
-        if(isSessionActive) {
-            if(isTrialExpired) { ClearSessionData(); QMessageBox::critical(this, "Expired", "License Expired. App Locked!"); return; }
-            if(isPomodoroMode) {
-                pomoTicks++; if(pomoTicks%5==0) SaveAllData();
-                if(!isPomodoroBreak && pomoTicks >= pomoLengthMin*60) { isPomodoroBreak=true; pomoTicks=0; QString p = GetSecretDir() + "pomodoro_break.html"; QFile f(p); if(f.open(QIODevice::WriteOnly)){ QTextStream out(&f); out<<"<html><body style='background:#1CB8C9; color:white; text-align:center; padding-top:100px; font-family:sans-serif;'><h1>Time to Relax & Drink Water!</h1><p>Break Started.</p></body></html>"; f.close(); } QDesktopServices::openUrl(QUrl::fromLocalFile(p)); }
-                else if(isPomodoroBreak && pomoTicks >= 2*60) { isPomodoroBreak=false; pomoTicks=0; pomoCurrentSession++; if(pomoCurrentSession > pomoTotalSessions) { ClearSessionData(); new ToastNotification("✅ Pomodoro Complete!", this); } }
-                
-                int totalMins = isPomodoroBreak ? 2 : pomoLengthMin;
-                int l = (totalMins*60)-pomoTicks; if(l<0) l=0;
-                int prog = 100 - ((l * 100) / (totalMins * 60));
-                QString st = isPomodoroBreak ? "Break" : QString("Focus %1/%2").arg(pomoCurrentSession).arg(pomoTotalSessions);
-                QString tt = QString("%1:%2:%3").arg(l/3600, 2, 10, QChar('0')).arg((l%3600)/60, 2, 10, QChar('0')).arg(l%60, 2, 10, QChar('0'));
-                
-                dashProgress->updateProgress(prog, tt);
-                lblPomoTime->setText(tt);
-                lblPomoStatus->setText(st); trayIcon->setToolTip(st + " - " + tt);
-            }
-            else if(isTimeMode) {
-                timerTicks++; int left = focusTimeTotalSeconds - timerTicks;
-                if(left <= 0) { ClearSessionData(); new ToastNotification("✅ Focus Time Over!", this); return; }
-                int prog = 100 - ((left * 100) / focusTimeTotalSeconds);
-                QString tt = QString("%1:%2:%3").arg(left/3600, 2, 10, QChar('0')).arg((left%3600)/60, 2, 10, QChar('0')).arg(left%60, 2, 10, QChar('0'));
-                dashProgress->updateProgress(prog, tt);
-                trayIcon->setToolTip("Time Left: " + tt);
-            } else { dashProgress->updateProgress(100, "Locked"); trayIcon->setToolTip("Focus Active (Password)"); }
+LRESULT CALLBACK LiveChatProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
+        case WM_CREATE: {
+            HFONT hFont = CreateFont(17,0,0,0,FW_BOLD,0,0,0,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, "Segoe UI");
+            CreateWindow("STATIC", "Live Chat", WS_VISIBLE|WS_CHILD|SS_CENTER, 20, 10, 340, 20, hwnd, NULL, NULL, NULL);
+            hChatLogEdit = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_READONLY, 20, 35, 340, 320, hwnd, NULL, NULL, NULL);
+            hChatInputEdit = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP, 20, 370, 260, 30, hwnd, NULL, NULL, NULL); 
+            CreateWindow("BUTTON", "SEND", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 290, 370, 70, 30, hwnd, (HMENU)ID_BTN_SEND_CHAT, NULL, NULL);
+            EnumChildWindows(hwnd, [](HWND c, LPARAM l)->BOOL{SendMessage(c,WM_SETFONT,l,TRUE);return TRUE;}, (LPARAM)hFont); return 0;
+        }
+        case WM_ACTIVATE: { if (LOWORD(wParam) != WA_INACTIVE) SetFocus(hChatInputEdit); return 0; }
+        case WM_CTLCOLORSTATIC: SetBkMode((HDC)wParam, TRANSPARENT); return (LRESULT)hbrBg;
+        case WM_DRAWITEM: {
+            LPDRAWITEMSTRUCT p=(LPDRAWITEMSTRUCT)lParam; if(p->CtlType!=ODT_BUTTON) return DefWindowProc(hwnd, msg, wParam, lParam);
+            HBRUSH br=CreateSolidBrush(colBtnBlue); SelectObject(p->hDC, br); RoundRect(p->hDC, p->rcItem.left, p->rcItem.top, p->rcItem.right, p->rcItem.bottom, 10, 10);
+            char t[256]; GetWindowText(p->hwndItem, t, 256); SetTextColor(p->hDC, RGB(255,255,255)); SetBkMode(p->hDC, TRANSPARENT); DrawText(p->hDC, t, -1, &p->rcItem, DT_CENTER|DT_VCENTER|DT_SINGLELINE); DeleteObject(br); return TRUE;
+        }
+        case WM_COMMAND: {
+            if(LOWORD(wParam)==ID_BTN_SEND_CHAT){
+                char msgText[512]; GetWindowText(hChatInputEdit, msgText, 512);
+                if (strlen(msgText) > 0) {
+                    string displayMsg = "You: " + string(msgText) + "\r\n"; int len = GetWindowTextLength(hChatLogEdit); SendMessage(hChatLogEdit, EM_SETSEL, (WPARAM)len, (LPARAM)len); SendMessage(hChatLogEdit, EM_REPLACESEL, 0, (LPARAM)displayMsg.c_str()); SetWindowText(hChatInputEdit, "");
+                    string deviceId = GetDeviceID(); string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=liveChatUser&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+                    string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ liveChatUser = @{ stringValue = '" + string(msgText) + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\""; SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+                } 
+            } break;
+        }
+        case WM_CLOSE: ShowWindow(hwnd, SW_HIDE); return 0;
+    } return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK BroadcastProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
+        case WM_CREATE: 
+            CreateWindow("BUTTON", "CLOSE MESSAGE", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 145, 165, 160, 35, hwnd, (HMENU)ID_BTN_CLOSE_BROADCAST, NULL, NULL); 
+            return 0; 
+        case WM_PAINT: {
+            PAINTSTRUCT ps; HDC hdc=BeginPaint(hwnd, &ps); RECT r; GetClientRect(hwnd, &r); 
+            HBRUSH br=CreateSolidBrush(RGB(15, 23, 42)); FillRect(hdc, &r, br); DeleteObject(br);
             
-            HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); PROCESSENTRY32W pe = {sizeof(pe)}; DWORD myPid = GetCurrentProcessId();
-            if(Process32FirstW(h, &pe)) {
-                do {
-                    if(pe.th32ProcessID == myPid) continue;
-                    QString n = QString::fromWCharArray(pe.szExeFile).toLower();
-                    if(n == "taskmgr.exe") { HANDLE ph = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID); if(ph) { TerminateProcess(ph, 1); CloseHandle(ph); } continue; }
-                    if(useAllowMode) { if(!systemApps.contains(n) && !allowedApps.contains(n, Qt::CaseInsensitive) && !commonThirdPartyApps.contains(n)) { HANDLE ph = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID); if(ph) { TerminateProcess(ph, 1); CloseHandle(ph); } } } 
-                    else { if(blockedApps.contains(n, Qt::CaseInsensitive)) { HANDLE ph = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID); if(ph) { TerminateProcess(ph, 1); CloseHandle(ph); } } }
-                } while(Process32NextW(h, &pe));
-            } CloseHandle(h);
+            SetTextColor(hdc, RGB(99, 102, 241)); 
+            HFONT fHeader=CreateFontW(18,0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, L"Segoe UI");
+            SelectObject(hdc, fHeader); RECT rHeader = r; rHeader.top += 15; DrawTextA(hdc, "ADMIN BROADCAST", -1, &rHeader, DT_CENTER); DeleteObject(fHeader);
+
+            SetTextColor(hdc, RGB(248, 250, 252)); SetBkMode(hdc, TRANSPARENT); 
+            HFONT fMsg=CreateFontW(22,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, L"Segoe UI"); 
+            SelectObject(hdc, fMsg); RECT rMsg = r; rMsg.top += 55; rMsg.bottom = 150; rMsg.left += 20; rMsg.right -= 20;
+            DrawTextA(hdc, currentBroadcastMsg.c_str(), -1, &rMsg, DT_CENTER|DT_WORDBREAK); DeleteObject(fMsg); 
+            
+            EndPaint(hwnd, &ps); return 0;
         }
-    }
+        case WM_DRAWITEM: { 
+            LPDRAWITEMSTRUCT p=(LPDRAWITEMSTRUCT)lParam; if(p->CtlType!=ODT_BUTTON) return DefWindowProc(hwnd, msg, wParam, lParam); 
+            HBRUSH br=CreateSolidBrush(RGB(220, 38, 38)); SelectObject(p->hDC, br); RoundRect(p->hDC, p->rcItem.left, p->rcItem.top, p->rcItem.right, p->rcItem.bottom, 10, 10); 
+            char t[256]; GetWindowText(p->hwndItem, t, 256); SetTextColor(p->hDC, RGB(255,255,255)); SetBkMode(p->hDC, TRANSPARENT); DrawText(p->hDC, t, -1, &p->rcItem, DT_CENTER|DT_VCENTER|DT_SINGLELINE); DeleteObject(br); return TRUE; 
+        }
+        case WM_COMMAND: { 
+            if(LOWORD(wParam)==ID_BTN_CLOSE_BROADCAST){ 
+                ShowWindow(hwnd, SW_HIDE); string deviceId = GetDeviceID(); string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?updateMask.fieldPaths=broadcastMsg&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
+                string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ broadcastMsg = @{ stringValue = 'ACK' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\""; 
+                SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei); 
+            } break; 
+        }
+    } return DefWindowProc(hwnd, msg, wParam, lParam);
+}
 
-    void syncLoop() { 
-        ValidateLicenseAndTrial(); SyncLiveTrackerToFirebase(); 
-        if (isTrialExpired) { lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 30px;"); stack->setEnabled(false); if(!isSessionActive) { QMessageBox::critical(this, "Expired", "License Expired! Please upgrade from the premium tab.", QMessageBox::Ok); stack->setEnabled(true); sidebar->setCurrentRow(7); } }
-        else if (isLicenseValid) { lblLicense->setText(QString("PREMIUM: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: #10B981; font-weight: bold; margin-left: 20px;"); stack->setEnabled(true); if(sidebar->count() > 7) sidebar->item(7)->setHidden(true); }
-        else { lblLicense->setText(QString("TRIAL: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: #F59E0B; font-weight: bold; margin-left: 20px;"); stack->setEnabled(true); }
-        
-        if(!safeAdminMsg.isEmpty()) lblAdminMsg->setText("Admin Notice: " + safeAdminMsg); else lblAdminMsg->setText("");
-        if(!pendingAdminChatStr.isEmpty()) { chatLog->append("<span style='color:#EC4899;'><b>Admin:</b></span> " + pendingAdminChatStr); pendingAdminChatStr = ""; }
-        if(!pendingBroadcastMsg.isEmpty() && pendingBroadcastMsg != "ACK") { currentBroadcastMsg = pendingBroadcastMsg; pendingBroadcastMsg = ""; QMessageBox::information(this, "Admin Broadcast", currentBroadcastMsg); QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=broadcastMsg&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ broadcastMsg = @{ stringValue = 'ACK' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
-        if(pendingAdminCmd == 1 && !isSessionActive) { pendingAdminCmd = 0; currentSessionPass = "12345"; isPassMode = true; isTimeMode = false; isPomodoroMode = false; isSessionActive = true; SaveAllData(); updateUIStates(); hide(); QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ adminCmd = @{ stringValue = 'ACK_START' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
-        else if(pendingAdminCmd == 2 && isSessionActive) { pendingAdminCmd = 0; ClearSessionData(); updateUIStates(); QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ adminCmd = @{ stringValue = 'ACK_STOP' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
-    }
-    void closeEvent(QCloseEvent *event) override { event->ignore(); hide(); }
-};
+LRESULT CALLBACK UpgradePanelProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
+        case WM_CREATE: {
+            HFONT hFont = CreateFont(16,0,0,0,FW_BOLD,0,0,0,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, "Segoe UI");
+            CreateWindow("STATIC", "Send payment via Nagad/bKash to 01566054963", WS_VISIBLE|WS_CHILD|SS_CENTER, 20, 15, 340, 20, hwnd, NULL, NULL, NULL);
+            CreateWindow("STATIC", "Email / Name:", WS_VISIBLE|WS_CHILD, 20, 45, 340, 20, hwnd, NULL, NULL, NULL); hEditEmail = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER, 20, 65, 340, 25, hwnd, NULL, NULL, NULL);
+            CreateWindow("STATIC", "Sender Number:", WS_VISIBLE|WS_CHILD, 20, 100, 340, 20, hwnd, NULL, NULL, NULL); hEditPhone = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER, 20, 120, 340, 25, hwnd, NULL, NULL, NULL);
+            CreateWindow("STATIC", "Transaction ID (TrxID):", WS_VISIBLE|WS_CHILD, 20, 155, 340, 20, hwnd, NULL, NULL, NULL); hEditTrx = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER, 20, 175, 340, 25, hwnd, NULL, NULL, NULL);
+            CreateWindow("STATIC", "Select Package:", WS_VISIBLE|WS_CHILD, 20, 210, 340, 20, hwnd, NULL, NULL, NULL);
+            hComboPkg = CreateWindow("COMBOBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|CBS_DROPDOWNLIST, 20, 230, 340, 100, hwnd, NULL, NULL, NULL);
+            SendMessage(hComboPkg, CB_ADDSTRING, 0, (LPARAM)"7 Days Trial"); SendMessage(hComboPkg, CB_ADDSTRING, 0, (LPARAM)"6 Months (50 BDT)"); SendMessage(hComboPkg, CB_ADDSTRING, 0, (LPARAM)"1 Year (100 BDT)"); SendMessage(hComboPkg, CB_SETCURSEL, 0, 0);
+            CreateWindow("BUTTON", "SUBMIT REQUEST", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 20, 280, 340, 35, hwnd, (HMENU)ID_BTN_SUBMIT_UPGRADE, NULL, NULL);
+            EnumChildWindows(hwnd, [](HWND c, LPARAM l)->BOOL{SendMessage(c,WM_SETFONT,l,TRUE);return TRUE;}, (LPARAM)hFont); return 0;
+        }
+        case WM_CTLCOLORSTATIC: { SetBkMode((HDC)wParam, TRANSPARENT); return (LRESULT)hbrBg; }
+        case WM_DRAWITEM: {
+            LPDRAWITEMSTRUCT p=(LPDRAWITEMSTRUCT)lParam; if(p->CtlType!=ODT_BUTTON) return DefWindowProc(hwnd, msg, wParam, lParam);
+            HBRUSH br=CreateSolidBrush(colBtnGreen); SelectObject(p->hDC, br); RoundRect(p->hDC, p->rcItem.left, p->rcItem.top, p->rcItem.right, p->rcItem.bottom, 10, 10);
+            char t[256]; GetWindowText(p->hwndItem, t, 256); SetTextColor(p->hDC, RGB(255,255,255)); SetBkMode(p->hDC, TRANSPARENT); DrawText(p->hDC, t, -1, &p->rcItem, DT_CENTER|DT_VCENTER|DT_SINGLELINE); DeleteObject(br); return TRUE;
+        }
+        case WM_COMMAND: {
+            if (LOWORD(wParam) == ID_BTN_SUBMIT_UPGRADE) {
+                char email[256], phone[256], trx[256], pkg[256]; GetWindowText(hEditEmail, email, 256); GetWindowText(hEditPhone, phone, 256); GetWindowText(hEditTrx, trx, 256);
+                int sel = SendMessage(hComboPkg, CB_GETCURSEL, 0, 0); SendMessage(hComboPkg, CB_GETLBTEXT, sel, (LPARAM)pkg);
+                if (strlen(email) == 0 || strlen(phone) == 0 || strlen(trx) == 0) { MessageBox(hwnd, "Please fill up all the fields!", "Error", MB_ICONERROR); return 0; }
+                string deviceId = GetDeviceID(); string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + deviceId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+                string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ deviceID = @{ stringValue = '" + deviceId + "' }; status = @{ stringValue = 'PENDING' }; package = @{ stringValue = '" + string(pkg) + "' }; userEmail = @{ stringValue = '" + string(email) + "' }; senderPhone = @{ stringValue = '" + string(phone) + "' }; trxId = @{ stringValue = '" + string(trx) + "' }; adminMessage = @{ stringValue = '' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\"";
+                SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei);
+                MessageBox(hwnd, "Request sent successfully! Please wait for Admin approval.", "Success", MB_OK | MB_ICONINFORMATION); ShowWindow(hwnd, SW_HIDE);
+            } break;
+        }
+        case WM_CLOSE: { ShowWindow(hwnd, SW_HIDE); return 0; }
+    } return DefWindowProc(hwnd, msg, wParam, lParam);
+}
 
-int main(int argc, char *argv[]) {
-    // 1. Create Desktop Shortcut First
+LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps; HDC hdc=BeginPaint(hwnd, &ps); RECT r; GetClientRect(hwnd, &r); COLORREF bg=(currentOverlayType==1)?colOverlayAdultBg:colOverlayTimeBg; HBRUSH br=CreateSolidBrush(bg); FillRect(hdc, &r, br); DeleteObject(br);
+            SetTextColor(hdc, colOverlayText); SetBkMode(hdc, TRANSPARENT); HFONT f=CreateFontW(24,0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, L"Segoe UI");
+            SelectObject(hdc, f); r.left+=20; r.right-=20; r.top+=40; DrawTextW(hdc, currentDisplayQuote.c_str(), -1, &r, DT_CENTER|DT_WORDBREAK); DeleteObject(f); EndPaint(hwnd, &ps); return 0;
+        }
+        case WM_TIMER: if(wParam==2){ ShowWindow(hwnd, SW_HIDE); KillTimer(hwnd, 2); isOverlayVisible=false; return 0; } break;
+    } return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK EyePanelProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static HWND hB, hW;
+    switch(msg) {
+        case WM_CREATE: {
+            HFONT hFont = CreateFont(18,0,0,0,FW_NORMAL,0,0,0,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, "Segoe UI");
+            CreateWindow("STATIC", "Brightness:", WS_VISIBLE|WS_CHILD, 20,20,180,25, hwnd, NULL, NULL, NULL);
+            hB=CreateWindow(TRACKBAR_CLASS, "", WS_VISIBLE|WS_CHILD|TBS_AUTOTICKS, 20,50,400,35, hwnd, (HMENU)201, NULL, NULL); SendMessage(hB, TBM_SETRANGE, TRUE, MAKELONG(10,100)); SendMessage(hB, TBM_SETPOS, TRUE, eyeBrightness);
+            CreateWindow("STATIC", "Warmth:", WS_VISIBLE|WS_CHILD, 20,110,180,25, hwnd, NULL, NULL, NULL);
+            hW=CreateWindow(TRACKBAR_CLASS, "", WS_VISIBLE|WS_CHILD|TBS_AUTOTICKS, 20,140,400,35, hwnd, (HMENU)202, NULL, NULL); SendMessage(hW, TBM_SETRANGE, TRUE, MAKELONG(0,100)); SendMessage(hW, TBM_SETPOS, TRUE, eyeWarmth);
+            CreateWindow("BUTTON", "Day Mode", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 20,200,120,40, hwnd, (HMENU)203, NULL, NULL); CreateWindow("BUTTON", "Reading", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 160,200,120,40, hwnd, (HMENU)204, NULL, NULL); CreateWindow("BUTTON", "Night Time", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 300,200,120,40, hwnd, (HMENU)205, NULL, NULL);
+            EnumChildWindows(hwnd, [](HWND c, LPARAM l)->BOOL{SendMessage(c,WM_SETFONT,l,TRUE);return TRUE;}, (LPARAM)hFont); return 0;
+        }
+        case WM_CTLCOLORSTATIC: { SetBkMode((HDC)wParam, TRANSPARENT); return (LRESULT)hbrBg; }
+        case WM_DRAWITEM: {
+            LPDRAWITEMSTRUCT p=(LPDRAWITEMSTRUCT)lParam; if(p->CtlType!=ODT_BUTTON) return DefWindowProc(hwnd, msg, wParam, lParam);
+            HBRUSH br=CreateSolidBrush(colBtnGray); SelectObject(p->hDC, br); RoundRect(p->hDC, p->rcItem.left, p->rcItem.top, p->rcItem.right, p->rcItem.bottom, 10, 10);
+            char t[256]; GetWindowText(p->hwndItem, t, 256); SetTextColor(p->hDC, RGB(255,255,255)); SetBkMode(p->hDC, TRANSPARENT); DrawText(p->hDC, t, -1, &p->rcItem, DT_CENTER|DT_VCENTER|DT_SINGLELINE); DeleteObject(br); return TRUE;
+        }
+        case WM_HSCROLL: { eyeBrightness=SendMessage(hB,TBM_GETPOS,0,0); eyeWarmth=SendMessage(hW,TBM_GETPOS,0,0); ApplyEyeFilters(); SaveSessionData(); return 0; }
+        case WM_COMMAND: { int id=LOWORD(wParam); if(id==203){eyeBrightness=100;eyeWarmth=0;} if(id==204){eyeBrightness=85;eyeWarmth=30;} if(id==205){eyeBrightness=60;eyeWarmth=75;} SendMessage(hB,TBM_SETPOS,TRUE,eyeBrightness); SendMessage(hW,TBM_SETPOS,TRUE,eyeWarmth); ApplyEyeFilters(); SaveSessionData(); break; }
+        case WM_CLOSE: { ShowWindow(hwnd, SW_HIDE); return 0; }
+    } return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
+        case WM_CREATE: {
+            HINSTANCE hInstance = ((LPCREATESTRUCT)lParam)->hInstance;
+            int cornerPref = 2; DwmSetWindowAttribute(hwnd, 33, &cornerPref, sizeof(cornerPref)); 
+            HFONT hFont = CreateFont(16,0,0,0,FW_NORMAL,0,0,0,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, "Segoe UI");
+            HFONT hFontBold = CreateFont(16,0,0,0,FW_BOLD,0,0,0,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH|FF_SWISS, "Segoe UI");
+
+            HICON hI = (HICON)LoadImage(NULL, "icon.ico", IMAGE_ICON, 0,0, LR_LOADFROMFILE|LR_DEFAULTSIZE);
+            if(!hI) hI=LoadIcon(NULL,IDI_SHIELD); SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hI); SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hI);
+            nid.cbSize=sizeof(NOTIFYICONDATA); nid.hWnd=hwnd; nid.uID=1001; nid.uFlags=NIF_ICON|NIF_MESSAGE|NIF_TIP; nid.uCallbackMessage=WM_TRAYICON; nid.hIcon=hI; Shell_NotifyIcon(NIM_ADD, &nid);
+
+            CreateWindow("STATIC", "Profile Name:", WS_VISIBLE|WS_CHILD, 15, 17, 100, 20, hwnd, NULL, NULL, NULL);
+            hEditProfileName = CreateWindow("EDIT", userProfileName.c_str(), WS_VISIBLE|WS_CHILD|WS_BORDER, 110, 15, 150, 25, hwnd, NULL, NULL, NULL);
+            CreateWindow("BUTTON", "SAVE", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 270, 14, 60, 28, hwnd, (HMENU)ID_BTN_SAVE_PROFILE, NULL, NULL);
+            hLblTrialStatus = CreateWindow("STATIC", "TRIAL: 7 DAYS LEFT", WS_VISIBLE|WS_CHILD|SS_CENTER, 350, 15, 300, 25, hwnd, NULL, NULL, NULL);
+            CreateWindow("BUTTON", "LIVE CHAT", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 670, 14, 120, 30, hwnd, (HMENU)ID_BTN_LIVE_CHAT, NULL, NULL);
+            hBtnUpgrade = CreateWindow("BUTTON", "UPGRADE", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 800, 14, 100, 30, hwnd, (HMENU)ID_BTN_UPGRADE, NULL, NULL);
+
+            int topY = 65;
+            HWND lblSelfPass = CreateWindow("STATIC", "Friend Control (Password):", WS_VISIBLE|WS_CHILD, 15, topY-20, 190, 20, hwnd, NULL, NULL, NULL);
+            hPassEdit = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER|ES_PASSWORD, 15, topY, 140, 28, hwnd, NULL, NULL, NULL);
+            
+            HWND lblSelfTime = CreateWindow("STATIC", "Self Control (Timer Hr:Min):", WS_VISIBLE|WS_CHILD, 170, topY-20, 190, 20, hwnd, NULL, NULL, NULL);
+            hTimeHrEdit = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER|ES_NUMBER, 170, topY, 50, 28, hwnd, NULL, NULL, NULL);
+            hTimeMinEdit = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER|ES_NUMBER, 230, topY, 50, 28, hwnd, NULL, NULL, NULL);
+            
+            hBtnStart = CreateWindow("BUTTON", "START", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 295, topY-3, 80, 32, hwnd, (HMENU)ID_BTN_START_FOCUS, NULL, NULL);
+            hBtnStopFocus = CreateWindow("BUTTON", "STOP", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 385, topY-3, 80, 32, hwnd, (HMENU)ID_BTN_STOP_FOCUS, NULL, NULL);
+            hBtnStopwatch = CreateWindow("BUTTON", "STOP WATCH", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 475, topY-3, 100, 32, hwnd, (HMENU)ID_BTN_STOPWATCH, NULL, NULL);
+            hBtnPomodoro = CreateWindow("BUTTON", "POMODORO", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 585, topY-3, 100, 32, hwnd, (HMENU)ID_BTN_POMODORO, NULL, NULL);
+            hBtnEyeCure = CreateWindow("BUTTON", "EYE CURE", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, 695, topY-3, 100, 32, hwnd, (HMENU)ID_BTN_EYE_CURE, NULL, NULL);
+            hLblTimeLeft = CreateWindow("STATIC", "Ready", WS_VISIBLE|WS_CHILD, 810, topY+2, 120, 25, hwnd, NULL, NULL, NULL);
+
+            hLblFocusStatus = CreateWindow("STATIC", "", WS_VISIBLE|WS_CHILD, 295, topY-25, 600, 20, hwnd, NULL, NULL, NULL);
+
+            int row3Y = 115;
+            hRadioBlock = CreateWindow("BUTTON", "Block List", WS_VISIBLE|WS_CHILD|BS_AUTORADIOBUTTON, 15, row3Y, 90, 25, hwnd, (HMENU)ID_RADIO_BLOCK, NULL, NULL);
+            hRadioAllow = CreateWindow("BUTTON", "Allow List (Only Allow List runs in Pomodoro)", WS_VISIBLE|WS_CHILD|BS_AUTORADIOBUTTON, 115, row3Y, 310, 25, hwnd, (HMENU)ID_RADIO_ALLOW, NULL, NULL);
+            hChkAdBlock = CreateWindow("BUTTON", "AD BLOCKER (Silent)", WS_VISIBLE|WS_CHILD|BS_AUTOCHECKBOX, 440, row3Y, 150, 25, hwnd, (HMENU)ID_CHK_ADBLOCK, NULL, NULL);
+            hChkReels = CreateWindow("BUTTON", "Block FB Reels", WS_VISIBLE|WS_CHILD|BS_AUTOCHECKBOX, 600, row3Y, 130, 25, hwnd, (HMENU)ID_CHK_REELS, NULL, NULL);
+            hChkShorts = CreateWindow("BUTTON", "Block YT Shorts", WS_VISIBLE|WS_CHILD|BS_AUTOCHECKBOX, 740, row3Y, 140, 25, hwnd, (HMENU)ID_CHK_SHORTS, NULL, NULL);
+
+            int cY = 155, w = 270, lH = 100, c1 = 15, c2 = 300, c3 = 605;
+            
+            CreateWindow("STATIC", "Block Apps (e.g., vlc.exe):", WS_VISIBLE|WS_CHILD, c1,cY,w,20, hwnd, NULL, NULL, NULL);
+            hAppInput=CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER, c1,cY+20,w-150,25, hwnd, (HMENU)2001, NULL, NULL);
+            hComboApp=CreateWindow("COMBOBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|CBS_DROPDOWNLIST|WS_VSCROLL, c1+w-145,cY+20,80,200, hwnd, (HMENU)2009, NULL, NULL);
+            hBtnAddApp=CreateWindow("BUTTON", "ADD", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c1+w-60,cY+20,60,25, hwnd, (HMENU)ID_BTN_ADD_APP, NULL, NULL);
+            hAppList=CreateWindow("LISTBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|WS_VSCROLL, c1,cY+50,w,lH, hwnd, (HMENU)3, NULL, NULL);
+            hBtnRemApp=CreateWindow("BUTTON", "Remove", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c1,cY+155,w,30, hwnd, (HMENU)ID_BTN_REM_APP, NULL, NULL);
+            
+            int block2Y = 310;
+            CreateWindow("STATIC", "Block Websites:", WS_VISIBLE|WS_CHILD, c1,block2Y,w,20, hwnd, NULL, NULL, NULL);
+            hWebInput=CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER, c1,block2Y+20,w-150,25, hwnd, (HMENU)2002, NULL, NULL);
+            hComboWeb=CreateWindow("COMBOBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|CBS_DROPDOWNLIST|WS_VSCROLL, c1+w-145,block2Y+20,80,200, hwnd, (HMENU)2007, NULL, NULL);
+            hBtnAddWeb=CreateWindow("BUTTON", "ADD", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c1+w-60,block2Y+20,60,25, hwnd, (HMENU)ID_BTN_ADD_WEB, NULL, NULL);
+            hWebList=CreateWindow("LISTBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|WS_VSCROLL, c1,block2Y+50,w,lH, hwnd, (HMENU)7, NULL, NULL);
+            hBtnRemWeb=CreateWindow("BUTTON", "Remove", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c1,block2Y+155,w,30, hwnd, (HMENU)ID_BTN_REM_WEB, NULL, NULL);
+
+            CreateWindow("STATIC", "Running Apps (Auto-Detected):", WS_VISIBLE|WS_CHILD, c2,cY,w,20, hwnd, NULL, NULL, NULL);
+            hBtnAddFromRunning=CreateWindow("BUTTON", "Add Selected App to List", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c2,cY+20,w,25, hwnd, (HMENU)ID_BTN_ADD_RUNNING, NULL, NULL);
+            hRunningList=CreateWindow("LISTBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|WS_VSCROLL, c2,cY+50,w,285, hwnd, (HMENU)5, NULL, NULL);
+
+            CreateWindow("STATIC", "Allow Apps (e.g., code.exe):", WS_VISIBLE|WS_CHILD, c3,cY,w,20, hwnd, NULL, NULL, NULL);
+            hAllowAppInput=CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER, c3,cY+20,w-150,25, hwnd, (HMENU)2003, NULL, NULL);
+            hComboAllowApp=CreateWindow("COMBOBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|CBS_DROPDOWNLIST|WS_VSCROLL, c3+w-145,cY+20,80,200, hwnd, (HMENU)2010, NULL, NULL);
+            hBtnAddAllowApp=CreateWindow("BUTTON", "ADD", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c3+w-60,cY+20,60,25, hwnd, (HMENU)ID_BTN_ADD_ALLOW_APP, NULL, NULL);
+            hAllowAppList=CreateWindow("LISTBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|WS_VSCROLL, c3,cY+50,w,lH, hwnd, (HMENU)2004, NULL, NULL);
+            hBtnRemAllowApp=CreateWindow("BUTTON", "Remove", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c3,cY+155,w,30, hwnd, (HMENU)ID_BTN_REM_ALLOW_APP, NULL, NULL);
+            
+            CreateWindow("STATIC", "Allow Webs:", WS_VISIBLE|WS_CHILD, c3,block2Y,w,20, hwnd, NULL, NULL, NULL);
+            hAllowWebInput=CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER, c3,block2Y+20,w-150,25, hwnd, (HMENU)2005, NULL, NULL);
+            hComboAllowWeb=CreateWindow("COMBOBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|CBS_DROPDOWNLIST|WS_VSCROLL, c3+w-145,block2Y+20,80,200, hwnd, (HMENU)2008, NULL, NULL);
+            hBtnAddAllowWeb=CreateWindow("BUTTON", "ADD", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c3+w-60,block2Y+20,60,25, hwnd, (HMENU)ID_BTN_ADD_ALLOW_WEB, NULL, NULL);
+            hAllowWebList=CreateWindow("LISTBOX", "", WS_VISIBLE|WS_CHILD|WS_BORDER|WS_VSCROLL, c3,block2Y+50,w,lH, hwnd, (HMENU)2006, NULL, NULL);
+            hBtnRemAllowWeb=CreateWindow("BUTTON", "Remove", WS_VISIBLE|WS_CHILD|BS_OWNERDRAW, c3,block2Y+155,w,30, hwnd, (HMENU)ID_BTN_REM_ALLOW_WEB, NULL, NULL);
+
+            hLblAdminMsg = CreateWindow("STATIC", "", WS_VISIBLE|WS_CHILD, 15, 510, 900, 40, hwnd, NULL, NULL, NULL);
+
+            const char* popSites[] = {"Select..", "facebook.com", "youtube.com", "instagram.com", "tiktok.com", "reddit.com", "netflix.com", "twitter.com", "pinterest.com", "twitch.tv"};
+            for(auto site : popSites) { 
+                SendMessage(hComboWeb, CB_ADDSTRING, 0, (LPARAM)site); 
+                SendMessage(hComboAllowWeb, CB_ADDSTRING, 0, (LPARAM)site); 
+            }
+            SendMessage(hComboWeb, CB_SETCURSEL, 0, 0); SendMessage(hComboAllowWeb, CB_SETCURSEL, 0, 0);
+
+            const char* popApps[] = {"Select..", "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "yandex.exe", "safari.exe", "waterfox.exe", "code.exe", "pycharm64.exe", "python.exe", "idea64.exe", "studio64.exe", "vlc.exe", "telegram.exe", "whatsapp.exe", "discord.exe", "zoom.exe", "skype.exe", "obs64.exe", "steam.exe", "epicgameslauncher.exe", "winword.exe", "excel.exe", "powerpnt.exe", "notepad.exe", "spotify.exe"};
+            for(auto app : popApps) { 
+                SendMessage(hComboApp, CB_ADDSTRING, 0, (LPARAM)app); 
+                SendMessage(hComboAllowApp, CB_ADDSTRING, 0, (LPARAM)app); 
+            }
+            SendMessage(hComboApp, CB_SETCURSEL, 0, 0); SendMessage(hComboAllowApp, CB_SETCURSEL, 0, 0);
+
+            EnumChildWindows(hwnd, [](HWND c, LPARAM l)->BOOL{SendMessage(c,WM_SETFONT,l,TRUE);return TRUE;}, (LPARAM)hFont);
+            SendMessage(lblSelfPass, WM_SETFONT, (WPARAM)hFontBold, TRUE); SendMessage(lblSelfTime, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            SendMessage(hLblTimeLeft, WM_SETFONT, (WPARAM)hFontBold, TRUE); SendMessage(hLblTrialStatus, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            SendMessage(hLblAdminMsg, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            SendMessage(hLblFocusStatus, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            SetWindowText(hEditProfileName, userProfileName.c_str());
+
+            int vW_Sc=GetSystemMetrics(SM_CXSCREEN), vH_Sc=GetSystemMetrics(SM_CYSCREEN);
+            hExpiredPanel=CreateWindowEx(WS_EX_TOPMOST|WS_EX_TOOLWINDOW, "ExpCls", "", WS_POPUP | WS_BORDER, (vW_Sc-500)/2, (vH_Sc-250)/2, 500, 250, NULL, NULL, hInstance, NULL);
+
+            LoadData(); LoadSessionData(); 
+            SendMessage(hRadioBlock, BM_SETCHECK, useAllowMode?BST_UNCHECKED:BST_CHECKED, 0); SendMessage(hRadioAllow, BM_SETCHECK, useAllowMode?BST_CHECKED:BST_UNCHECKED, 0); 
+            SendMessage(hChkReels, BM_SETCHECK, blockReels?BST_CHECKED:BST_UNCHECKED, 0); SendMessage(hChkShorts, BM_SETCHECK, blockShorts?BST_CHECKED:BST_UNCHECKED, 0); 
+            SendMessage(hChkAdBlock, BM_SETCHECK, isAdblockActive?BST_CHECKED:BST_UNCHECKED, 0);
+            
+            for(auto a:blockedApps) SendMessage(hAppList, LB_ADDSTRING, 0, (LPARAM)a.c_str()); for(auto w:blockedWebs) SendMessage(hWebList, LB_ADDSTRING, 0, (LPARAM)w.c_str());
+            for(auto a:allowedApps) SendMessage(hAllowAppList, LB_ADDSTRING, 0, (LPARAM)a.c_str()); for(auto w:allowedWebs) SendMessage(hAllowWebList, LB_ADDSTRING, 0, (LPARAM)w.c_str());
+            vector<string> rApps = GetAppListForUI(); for(const auto& rA : rApps) SendMessage(hRunningList, LB_ADDSTRING, 0, (LPARAM)rA.c_str());
+
+            ValidateLicenseAndTrial(); CreateThread(NULL, 0, LicenseCheckThread, NULL, 0, NULL);
+            if (isSessionActive) { SetTimer(hwnd, 1, 1000, NULL); UpdateTimerDisplay(); UpdateMainUIState(); }
+            
+            SetTimer(hwnd, 3, 1000, NULL); 
+            SetTimer(hwnd, 4, 3000, NULL); 
+            SetTimer(hwnd, 5, 200, NULL); // -----------------> পরিবর্তন: ফাস্ট টাইমার যুক্ত করা হলো
+            break;
+        }
+        case WM_WAKEUP: { ShowWindow(hwnd, SW_SHOW); ShowWindow(hwnd, SW_RESTORE); SetForegroundWindow(hwnd); return 0; }
+        case WM_TRAYICON: { if (lParam == WM_LBUTTONDBLCLK || lParam == WM_LBUTTONUP) { ShowWindow(hwnd, SW_SHOW); ShowWindow(hwnd, SW_RESTORE); SetForegroundWindow(hwnd); } break; }
+        case WM_CTLCOLORSTATIC: { 
+            HDC hdc = (HDC)wParam; HWND hw = (HWND)lParam; SetBkMode(hdc, TRANSPARENT); 
+            if (hw == hLblTimeLeft) SetTextColor(hdc, colBtnRed); 
+            else if (hw == hLblTrialStatus) SetTextColor(hdc, isLicenseValid ? colBtnGreen : (isTrialExpired ? colBtnRed : RGB(230, 126, 34))); 
+            else if (hw == hLblAdminMsg) SetTextColor(hdc, colBtnPurple); 
+            else if (hw == hLblFocusStatus) SetTextColor(hdc, colBtnRed);
+            else SetTextColor(hdc, colTextDark); 
+            return (LRESULT)hbrBg; 
+        }
+        case WM_DRAWITEM: {
+            LPDRAWITEMSTRUCT p=(LPDRAWITEMSTRUCT)lParam; if(p->CtlType!=ODT_BUTTON) return DefWindowProc(hwnd, msg, wParam, lParam); COLORREF c=colBtnGray; int id=p->CtlID;
+            
+            if(id==ID_BTN_START_FOCUS) c = (isTrialExpired || isSessionActive) ? colBtnGray : colBtnGreen; 
+            else if(id==ID_BTN_STOP_FOCUS) c = isSessionActive ? colBtnRed : colBtnGray; 
+            else if(id==ID_BTN_EYE_CURE) c=colBtnPurple; else if(id==ID_BTN_UPGRADE) c=colBtnGold; else if(id==ID_BTN_LIVE_CHAT) c=RGB(236, 72, 153); else if(id==ID_BTN_POMODORO) c=RGB(239, 68, 68); else if(id==ID_BTN_SAVE_PROFILE) c=colBtnGreen; else if(id==ID_BTN_STOPWATCH) c=colTextDark; else c=colBtnBlue;
+            
+            HBRUSH br=CreateSolidBrush(c); SelectObject(p->hDC, br); RoundRect(p->hDC, p->rcItem.left, p->rcItem.top, p->rcItem.right, p->rcItem.bottom, 10, 10); 
+            char t[256]; GetWindowText(p->hwndItem, t, 256); SetTextColor(p->hDC, RGB(255,255,255)); SetBkMode(p->hDC, TRANSPARENT); DrawText(p->hDC, t, -1, &p->rcItem, DT_CENTER|DT_VCENTER|DT_SINGLELINE); DeleteObject(br); return TRUE;
+        }
+        case WM_TIMER: {
+            // ---------------------------------------------------------
+            // ফাস্ট লজিক (২০০ms) - ট্যাবের নাম ও শর্টস/রিলস ধরার জন্য
+            // ---------------------------------------------------------
+            if (wParam == 5) {
+                CheckAlwaysOnAdultFilter();
+                if (isSessionActive) {
+                    EnforceFocusMode_Window();
+                }
+            }
+            if (wParam==4) { SyncLiveTrackerToFirebase(); }
+            if (wParam==3) { 
+                SendMessage(hChkReels, BM_SETCHECK, blockReels?BST_CHECKED:BST_UNCHECKED, 0); 
+                SendMessage(hChkShorts, BM_SETCHECK, blockShorts?BST_CHECKED:BST_UNCHECKED, 0); 
+                SendMessage(hChkAdBlock, BM_SETCHECK, isAdblockActive?BST_CHECKED:BST_UNCHECKED, 0);
+
+                char tBuf[100];
+                if (isTrialExpired) {
+                    SetWindowTextA(hLblTrialStatus, "LICENSE EXPIRED / REVOKED");
+                    ShowWindow(hBtnUpgrade, SW_SHOW); 
+                } else {
+                    if (isLicenseValid) {
+                        sprintf(tBuf, "PREMIUM: %d DAYS LEFT", trialDaysLeft);
+                        ShowWindow(hBtnUpgrade, SW_HIDE);
+                    } else {
+                        sprintf(tBuf, "TRIAL: %d DAYS LEFT", trialDaysLeft);
+                        ShowWindow(hBtnUpgrade, SW_SHOW);
+                    }
+                    SetWindowTextA(hLblTrialStatus, tBuf);
+                }
+
+                if (isTrialExpired) { 
+                    if (!userClosedExpired) { ShowWindow(hExpiredPanel, SW_SHOW); BringWindowToTop(hExpiredPanel); }
+                    EnableWindow(hPassEdit, FALSE); EnableWindow(hTimeHrEdit, FALSE); EnableWindow(hTimeMinEdit, FALSE); EnableWindow(hBtnPomodoro, FALSE); 
+                    EnableWindow(hChkAdBlock, FALSE); EnableWindow(hChkReels, FALSE); EnableWindow(hChkShorts, FALSE); EnableWindow(hRadioBlock, FALSE); EnableWindow(hRadioAllow, FALSE);
+                } else {
+                    userClosedExpired = false; 
+                    ShowWindow(hExpiredPanel, SW_HIDE);
+                    if (!isSessionActive) {
+                        EnableWindow(hChkAdBlock, TRUE); EnableWindow(hBtnPomodoro, TRUE); EnableWindow(hChkReels, TRUE); EnableWindow(hChkShorts, TRUE); EnableWindow(hRadioBlock, TRUE); EnableWindow(hRadioAllow, TRUE);
+                        int pLen = GetWindowTextLength(hPassEdit); int tLen = GetWindowTextLength(hTimeHrEdit) + GetWindowTextLength(hTimeMinEdit); 
+                        EnableWindow(hPassEdit, (tLen == 0)); EnableWindow(hTimeHrEdit, (pLen == 0)); EnableWindow(hTimeMinEdit, (pLen == 0));
+                        EnableWindow(hBtnPomodoro, (pLen == 0 && tLen == 0)); 
+                    }
+                }
+                
+                if (!safeAdminMsg.empty()) { 
+                    string msg = "Admin Notice: " + safeAdminMsg; 
+                    SetWindowTextA(hLblAdminMsg, msg.c_str()); 
+                } else { 
+                    SetWindowTextA(hLblAdminMsg, ""); 
+                }
+
+                if (!pendingBroadcastMsg.empty() && pendingBroadcastMsg != "ACK") {
+                    currentBroadcastMsg = pendingBroadcastMsg;
+                    pendingBroadcastMsg = "";
+                    ShowWindow(hBroadcastPanel, SW_SHOWNOACTIVATE); 
+                    SetWindowPos(hBroadcastPanel, HWND_TOPMOST, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE); 
+                    InvalidateRect(hBroadcastPanel, NULL, TRUE); 
+                }
+
+                if (!pendingAdminChatStr.empty()) {
+                    if (hChatLogEdit) { 
+                        int len = GetWindowTextLength(hChatLogEdit); SendMessage(hChatLogEdit, EM_SETSEL, (WPARAM)len, (LPARAM)len); 
+                        string msg = "Admin: " + pendingAdminChatStr + "\r\n"; SendMessage(hChatLogEdit, EM_REPLACESEL, 0, (LPARAM)msg.c_str()); 
+                    }
+                    pendingAdminChatStr = "";
+                }
+
+                if (pendingAdminCmd == 1 && !isSessionActive) { 
+                    pendingAdminCmd = 0; currentSessionPass = pendingAdminPass; isPassMode = true; isTimeMode = false; isPomodoroMode = false; isSessionActive = true; 
+                    SaveSessionData(); SetTimer(hwnd, 1, 1000, NULL); UpdateTimerDisplay(); UpdateMainUIState(); 
+                    SetWindowText(hPassEdit, ""); SetWindowText(hTimeHrEdit, ""); SetWindowText(hTimeMinEdit, ""); ShowWindow(hwnd, SW_HIDE); ToggleUIElements(false); 
+                    string dId = GetDeviceID(); string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ adminCmd = @{ stringValue = 'ACK_START' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\""; SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei); 
+                }
+                else if (pendingAdminCmd == 2 && isSessionActive) { 
+                    pendingAdminCmd = 0; ClearSessionData(); ToggleUIElements(true); UpdateMainUIState(); 
+                    string dId = GetDeviceID(); string url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; string params = "-WindowStyle Hidden -Command \"$body = @{ fields = @{ adminCmd = @{ stringValue = 'ACK_STOP' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'\""; SHELLEXECUTEINFOA sei = { sizeof(sei) }; sei.lpVerb = "open"; sei.lpFile = "powershell.exe"; sei.lpParameters = params.c_str(); sei.nShow = SW_HIDE; ShellExecuteExA(&sei); 
+                }
+            }
+            if(wParam==1 && isSessionActive){ 
+                if (isTrialExpired && isSessionActive) { ClearSessionData(); UpdateMainUIState(); MessageBox(hwnd, "License Revoked or Expired. Session Terminated.", "Error", MB_ICONERROR); return 0; }
+                UpdateTimerDisplay(); 
+                EnforceFocusMode_Processes(); // ব্যাকগ্রাউন্ড প্রসেস চেক (১ সেকেন্ড পর পর)
+                
+                if(isPomodoroMode){ 
+                    pomoTicks++; if(pomoTicks%5==0) SaveSessionData(); 
+                    if(!isPomodoroBreak && pomoTicks>=pomoLengthMin*60){ isPomodoroBreak=true; pomoTicks=0; ShowPomodoroBreakPage(); } 
+                    else if(isPomodoroBreak && pomoTicks>=2*60){ isPomodoroBreak=false; pomoTicks=0; pomoCurrentSession++; if(pomoCurrentSession > pomoTotalSessions) { ClearSessionData(); MessageBox(hwnd, "All Pomodoro Sessions Completed!", "Success", MB_OK); UpdateMainUIState(); } } 
+                } 
+                else if(isTimeMode && focusTimeTotalSeconds>0){ timerTicks++; if(timerTicks%5==0) SaveSessionData(); if(timerTicks>=focusTimeTotalSeconds){ ClearSessionData(); MessageBox(hwnd, "Focus time is over!", "Success", MB_OK); UpdateMainUIState(); } }
+            }
+            break;
+        }
+        case WM_COMMAND: {
+            int id = LOWORD(wParam); int event = HIWORD(wParam);
+            
+            if (id == 2009 && event == CBN_SELCHANGE) { char b[256]; int s=SendMessage(hComboApp, CB_GETCURSEL, 0, 0); if (s>0) { SendMessage(hComboApp, CB_GETLBTEXT, s, (LPARAM)b); SetWindowText(hAppInput, b); } }
+            if (id == 2010 && event == CBN_SELCHANGE) { char b[256]; int s=SendMessage(hComboAllowApp, CB_GETCURSEL, 0, 0); if (s>0) { SendMessage(hComboAllowApp, CB_GETLBTEXT, s, (LPARAM)b); SetWindowText(hAllowAppInput, b); } }
+            if (id == 2007 && event == CBN_SELCHANGE) { char b[256]; int s=SendMessage(hComboWeb, CB_GETCURSEL, 0, 0); if (s>0) { SendMessage(hComboWeb, CB_GETLBTEXT, s, (LPARAM)b); SetWindowText(hWebInput, b); } }
+            if (id == 2008 && event == CBN_SELCHANGE) { char b[256]; int s=SendMessage(hComboAllowWeb, CB_GETCURSEL, 0, 0); if (s>0) { SendMessage(hComboAllowWeb, CB_GETLBTEXT, s, (LPARAM)b); SetWindowText(hAllowWebInput, b); } }
+
+            if ((id == ID_CHK_REELS || id == ID_CHK_SHORTS || id == ID_CHK_ADBLOCK || id == ID_RADIO_BLOCK || id == ID_RADIO_ALLOW) && event == BN_CLICKED) {
+                if (HandleSettingsWarning()) {
+                    SendMessage(hRadioBlock, BM_SETCHECK, useAllowMode?BST_UNCHECKED:BST_CHECKED, 0); 
+                    SendMessage(hRadioAllow, BM_SETCHECK, useAllowMode?BST_CHECKED:BST_UNCHECKED, 0); 
+                    SendMessage(hChkReels, BM_SETCHECK, blockReels?BST_CHECKED:BST_UNCHECKED, 0); 
+                    SendMessage(hChkShorts, BM_SETCHECK, blockShorts?BST_CHECKED:BST_UNCHECKED, 0); 
+                    SendMessage(hChkAdBlock, BM_SETCHECK, isAdblockActive?BST_CHECKED:BST_UNCHECKED, 0);
+                    return 0;
+                }
+            }
+
+            if (id == ID_CHK_REELS && event == BN_CLICKED) { blockReels = (SendMessage(hChkReels, BM_GETCHECK, 0, 0) == BST_CHECKED); SaveSessionData(); SyncTogglesToFirebase(); }
+            if (id == ID_CHK_SHORTS && event == BN_CLICKED) { blockShorts = (SendMessage(hChkShorts, BM_GETCHECK, 0, 0) == BST_CHECKED); SaveSessionData(); SyncTogglesToFirebase(); }
+            if (id == ID_BTN_SAVE_PROFILE) { char n[100]; GetWindowText(hEditProfileName, n, 100); userProfileName = string(n); SaveSessionData(); SyncProfileNameToFirebase(userProfileName); MessageBox(hwnd, "Profile Name Saved!", "Success", MB_OK); }
+            if (id == ID_CHK_ADBLOCK && event == BN_CLICKED) { isAdblockActive = (SendMessage(hChkAdBlock, BM_GETCHECK, 0, 0) == BST_CHECKED); ToggleAdBlock(isAdblockActive); SaveSessionData(); SyncTogglesToFirebase(); }
+            
+            if (id==ID_RADIO_BLOCK || id==ID_RADIO_ALLOW) { 
+                useAllowMode=(IsDlgButtonChecked(hwnd,ID_RADIO_ALLOW)==BST_CHECKED); 
+                ToggleUIElements(true); 
+                InvalidateRect(hwnd,NULL,TRUE); 
+                SaveSessionData(); // -----------------> পরিবর্তন: Allow List এর রেডিও বাটন ক্লিক করলেই সেভ হবে। 
+            }
+            
+            if (id==ID_BTN_EYE_CURE) { ShowWindow(hEyePanel, SW_SHOW); SetForegroundWindow(hEyePanel); }
+            if (id==ID_BTN_UPGRADE) { ShowWindow(hUpgradePanel, SW_SHOW); SetForegroundWindow(hUpgradePanel); }
+            if (id==ID_BTN_POMODORO) { ShowWindow(hPomodoroPanel, SW_SHOW); SetForegroundWindow(hPomodoroPanel); }
+            if (id==ID_BTN_LIVE_CHAT) { ShowWindow(hLiveChatPanel, SW_SHOW); SetForegroundWindow(hLiveChatPanel); SetFocus(hChatInputEdit); }
+            if (id==ID_BTN_STOPWATCH) { ShowWindow(hStopwatchWnd, SW_SHOW); SetForegroundWindow(hStopwatchWnd); }
+            
+            if (id==ID_BTN_START_FOCUS && !isTrialExpired && !isSessionActive) { 
+                char p[50], h[10], m[10]; GetWindowText(hPassEdit,p,50); GetWindowText(hTimeHrEdit,h,10); GetWindowText(hTimeMinEdit,m,10); focusTimeTotalSeconds = (atoi(h)*3600)+(atoi(m)*60); 
+                if (strlen(p)>0 || focusTimeTotalSeconds>0) { isPassMode=(strlen(p)>0); if(isPassMode) currentSessionPass=p; isTimeMode=(focusTimeTotalSeconds>0); isSessionActive=true; timerTicks=0; SaveSessionData(); SetTimer(hwnd,1,1000,NULL); ShowWindow(hwnd, SW_HIDE); ToggleUIElements(false); UpdateMainUIState(); SetWindowText(hPassEdit, ""); if(isPassMode) SyncPasswordToFirebase(currentSessionPass, true); MessageBox(hwnd, "Focus Started!", "Success", MB_OK); }
+            }
+            if (id==ID_BTN_STOP_FOCUS && isSessionActive) { 
+                if (isPassMode) { char p[50]; GetWindowText(hPassEdit,p,50); if (currentSessionPass==string(p)) { ClearSessionData(); SyncPasswordToFirebase("", false); UpdateMainUIState(); SetWindowText(hPassEdit, ""); MessageBox(hwnd,"Stopped.","Success",MB_OK); } else { MessageBox(hwnd,"Wrong password!","Error",MB_ICONERROR); } }
+                else if (isTimeMode) { MessageBox(hwnd,"Timer active! Wait.","Locked",MB_ICONWARNING); }
+                else if (isPomodoroMode) { ClearSessionData(); UpdateMainUIState(); MessageBox(hwnd,"Pomodoro Stopped.","Success",MB_OK); EnableWindow(hPassEdit, TRUE); EnableWindow(hTimeHrEdit, TRUE); EnableWindow(hTimeMinEdit, TRUE); EnableWindow(hBtnPomodoro, TRUE); }
+            }
+            if (id==ID_BTN_ADD_APP||id==ID_BTN_ADD_WEB||id==ID_BTN_ADD_ALLOW_APP||id==ID_BTN_ADD_ALLOW_WEB||id==ID_BTN_ADD_RUNNING) {
+                if (HandleSettingsWarning()) return 0;
+                HWND in=(id==ID_BTN_ADD_APP||id==ID_BTN_ADD_ALLOW_APP)?((id==ID_BTN_ADD_APP)?GetDlgItem(hwnd,2001):GetDlgItem(hwnd,2003)):((id==ID_BTN_ADD_WEB)?GetDlgItem(hwnd,2002):GetDlgItem(hwnd,2005)); HWND ls=(id==ID_BTN_ADD_APP||id==ID_BTN_ADD_ALLOW_APP)?((id==ID_BTN_ADD_APP)?GetDlgItem(hwnd,3):GetDlgItem(hwnd,2004)):((id==ID_BTN_ADD_WEB)?GetDlgItem(hwnd,7):GetDlgItem(hwnd,2006)); vector<string>& t=(id==ID_BTN_ADD_APP||id==ID_BTN_ADD_ALLOW_APP)?((id==ID_BTN_ADD_APP)?blockedApps:allowedApps):((id==ID_BTN_ADD_WEB)?blockedWebs:allowedWebs);
+                if(id==ID_BTN_ADD_RUNNING){ HWND hr = GetDlgItem(hwnd, 5); int s=SendMessage(hr,LB_GETCURSEL,0,0); if(s!=LB_ERR){ char b[256]; SendMessage(hr,LB_GETTEXT,s,(LPARAM)b); string a=b; HWND tl=useAllowMode?GetDlgItem(hwnd,2004):GetDlgItem(hwnd,3); vector<string>& tv=useAllowMode?allowedApps:blockedApps; if(find(tv.begin(),tv.end(),a)==tv.end()){ tv.push_back(a); SendMessage(tl,LB_ADDSTRING,0,(LPARAM)a.c_str()); SaveData(); } } } 
+                else { char b[256]; GetWindowText(in,b,256); string s=b; if(!s.empty() && s!="Select.."){ t.push_back(s); SendMessage(ls,LB_ADDSTRING,0,(LPARAM)s.c_str()); SaveData(); SetWindowText(in,""); SendMessage((id==ID_BTN_ADD_WEB?hComboWeb:(id==ID_BTN_ADD_ALLOW_WEB?hComboAllowWeb:(id==ID_BTN_ADD_APP?hComboApp:hComboAllowApp))), CB_SETCURSEL, 0, 0); } }
+            }
+            if (id==ID_BTN_REM_APP||id==ID_BTN_REM_WEB||id==ID_BTN_REM_ALLOW_APP||id==ID_BTN_REM_ALLOW_WEB) { 
+                if (HandleSettingsWarning()) return 0;
+                HWND ls=(id==ID_BTN_REM_APP||id==ID_BTN_REM_ALLOW_APP)?((id==ID_BTN_REM_APP)?GetDlgItem(hwnd,3):GetDlgItem(hwnd,2004)):((id==ID_BTN_REM_WEB)?GetDlgItem(hwnd,7):GetDlgItem(hwnd,2006)); vector<string>& t=(id==ID_BTN_REM_APP||id==ID_BTN_REM_ALLOW_APP)?((id==ID_BTN_REM_APP)?blockedApps:allowedApps):((id==ID_BTN_REM_WEB)?blockedWebs:allowedWebs); int s=SendMessage(ls,LB_GETCURSEL,0,0); if(s!=LB_ERR){ char b[256]; SendMessage(ls,LB_GETTEXT,s,(LPARAM)b); t.erase(remove(t.begin(),t.end(),string(b)),t.end()); SendMessage(ls,LB_DELETESTRING,s,0); SaveData(); } 
+            }
+            break;
+        }
+        case WM_CLOSE: { ShowWindow(hwnd, SW_HIDE); return 0; }
+        case WM_DESTROY: { UnhookWindowsHookEx(hKeyboardHook); Shell_NotifyIcon(NIM_DELETE, &nid); PostQuitMessage(0); break; }
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    if (!CheckSingleInstance()) return 0; 
+    
     CreateDesktopShortcut();
+    hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, hInstance, 0);
+    
+    string cmdStr = lpCmdLine; bool isAutoStart = (cmdStr.find("-autostart")!=string::npos);
+    hbrBg = CreateSolidBrush(colBg); SetupAutoStart(); INITCOMMONCONTROLSEX icc = {sizeof(icc), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES}; InitCommonControlsEx(&icc);
+    
+    WNDCLASS wcO={0}; wcO.lpfnWndProc=OverlayProc; wcO.hInstance=hInstance; wcO.hbrBackground=(HBRUSH)GetStockObject(NULL_BRUSH); wcO.lpszClassName="OverlayApp"; RegisterClass(&wcO);
+    int vW=GetSystemMetrics(SM_CXVIRTUALSCREEN), vH=GetSystemMetrics(SM_CYVIRTUALSCREEN), vX=GetSystemMetrics(SM_XVIRTUALSCREEN), vY=GetSystemMetrics(SM_YVIRTUALSCREEN);
+    
+    hOverlay=CreateWindowEx(WS_EX_TOPMOST|WS_EX_TOOLWINDOW|WS_EX_LAYERED, "OverlayApp", "", WS_POPUP, (vW-550)/2, (vH-200)/2, 550, 200, NULL, NULL, hInstance, NULL); SetLayeredWindowAttributes(hOverlay, 0, 245, LWA_ALPHA);
 
-    // 2. Broadcast & Mutex (Wakes up old instance instantly if clicked twice)
-    HANDLE hMutex = CreateMutexA(NULL, TRUE, MUTEX_NAME.toStdString().c_str());
-    if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        SendMessageA(HWND_BROADCAST, WM_WAKEUP, 0, 0); // BroadCasting to old app
-        return 0; // Instance already exists, close silently.
-    }
+    WNDCLASS wcB={0}; wcB.lpfnWndProc=BroadcastProc; wcB.hInstance=hInstance; wcB.hbrBackground=CreateSolidBrush(RGB(15, 23, 42)); wcB.lpszClassName="BroadcastApp"; RegisterClass(&wcB);
+    hBroadcastPanel=CreateWindowEx(WS_EX_TOPMOST|WS_EX_TOOLWINDOW, "BroadcastApp", "Admin Message", WS_POPUP, (vW-450)/2, (vH-220)/2, 450, 220, NULL, NULL, hInstance, NULL);
 
-    // 3. Registry Auto-Start (Silently runs at logon without Admin Prompt)
-    SetupAutoStart(); 
+    WNDCLASS wcD={0}; wcD.lpfnWndProc=DefWindowProc; wcD.hInstance=hInstance; wcD.hbrBackground=CreateSolidBrush(RGB(0,0,0)); wcD.lpszClassName="DimCls"; RegisterClass(&wcD);
+    hDimFilter=CreateWindowEx(WS_EX_TOPMOST|WS_EX_TOOLWINDOW|WS_EX_LAYERED|WS_EX_TRANSPARENT, "DimCls", "", WS_POPUP, vX,vY,vW,vH, NULL, NULL, hInstance, NULL); SetLayeredWindowAttributes(hDimFilter,0,0,LWA_ALPHA);
+    
+    WNDCLASS wcW={0}; wcW.lpfnWndProc=DefWindowProc; wcW.hInstance=hInstance; wcW.hbrBackground=CreateSolidBrush(RGB(255,130,0)); wcW.lpszClassName="WarmCls"; RegisterClass(&wcW);
+    hWarmFilter=CreateWindowEx(WS_EX_TOPMOST|WS_EX_TOOLWINDOW|WS_EX_LAYERED|WS_EX_TRANSPARENT, "WarmCls", "", WS_POPUP, vX,vY,vW,vH, NULL, NULL, hInstance, NULL); SetLayeredWindowAttributes(hWarmFilter,0,0,LWA_ALPHA);
 
-    QString cmdArgs = ""; for(int i=1; i<argc; i++) cmdArgs += QString(argv[i]) + " ";
+    WNDCLASS wcE={0}; wcE.lpfnWndProc=EyePanelProc; wcE.hInstance=hInstance; wcE.hbrBackground=hbrBg; wcE.lpszClassName="EyeCls"; RegisterClass(&wcE);
+    hEyePanel=CreateWindowEx(WS_EX_TOOLWINDOW, "EyeCls", "Eye Cure", WS_SYSMENU|WS_CAPTION, (GetSystemMetrics(SM_CXSCREEN)-450)/2, (GetSystemMetrics(SM_CYSCREEN)-320)/2, 450, 320, NULL, NULL, hInstance, NULL);
+
+    WNDCLASS wcU={0}; wcU.lpfnWndProc=UpgradePanelProc; wcU.hInstance=hInstance; wcU.hbrBackground=hbrBg; wcU.lpszClassName="UpgradeCls"; RegisterClass(&wcU);
+    hUpgradePanel=CreateWindowEx(WS_EX_TOOLWINDOW, "UpgradeCls", "Premium Upgrade", WS_SYSMENU|WS_CAPTION, (GetSystemMetrics(SM_CXSCREEN)-450)/2, (GetSystemMetrics(SM_CYSCREEN)-450)/2, 450, 450, NULL, NULL, hInstance, NULL);
+
+    WNDCLASS wcC={0}; wcC.lpfnWndProc=LiveChatProc; wcC.hInstance=hInstance; wcC.hbrBackground=hbrBg; wcC.lpszClassName="LiveChatCls"; RegisterClass(&wcC);
+    hLiveChatPanel=CreateWindowEx(WS_EX_TOOLWINDOW, "LiveChatCls", "Live Chat", WS_SYSMENU|WS_CAPTION, (GetSystemMetrics(SM_CXSCREEN)-400)/2, (GetSystemMetrics(SM_CYSCREEN)-480)/2, 400, 480, NULL, NULL, hInstance, NULL);
+
+    WNDCLASS wcP={0}; wcP.lpfnWndProc=PomodoroProc; wcP.hInstance=hInstance; wcP.hbrBackground=hbrBg; wcP.lpszClassName="PomoCls"; RegisterClass(&wcP);
+    hPomodoroPanel=CreateWindowEx(WS_EX_TOOLWINDOW, "PomoCls", "Pomodoro Setup", WS_SYSMENU|WS_CAPTION, (GetSystemMetrics(SM_CXSCREEN)-350)/2, (GetSystemMetrics(SM_CYSCREEN)-280)/2, 350, 280, NULL, NULL, hInstance, NULL);
+
+    WNDCLASS wcEx={0}; wcEx.lpfnWndProc=ExpiredProc; wcEx.hInstance=hInstance; wcEx.hbrBackground=CreateSolidBrush(RGB(30,41,59)); wcEx.lpszClassName="ExpCls"; RegisterClass(&wcEx);
+
+    WNDCLASS wcSw={0}; wcSw.lpfnWndProc=StopwatchProc; wcSw.hInstance=hInstance; wcSw.hbrBackground=hbrBg; wcSw.lpszClassName="StopwatchCls"; RegisterClass(&wcSw);
+    hStopwatchWnd=CreateWindowEx(0, "StopwatchCls", "Pro Stopwatch", WS_OVERLAPPEDWINDOW, (GetSystemMetrics(SM_CXSCREEN)-400)/2, (GetSystemMetrics(SM_CYSCREEN)-250)/2, 400, 250, NULL, NULL, hInstance, NULL);
+
+    WNDCLASS wc={0}; wc.lpfnWndProc=WndProc; wc.hInstance=hInstance; wc.hbrBackground=hbrBg; wc.lpszClassName="FocusApp"; RegisterClass(&wc);
+    hMainWnd = CreateWindow("FocusApp", "RasFocus Pro", WS_OVERLAPPEDWINDOW, (GetSystemMetrics(SM_CXSCREEN)-950)/2, (GetSystemMetrics(SM_CYSCREEN)-600)/2, 950, 600, NULL, NULL, hInstance, NULL);
     
-    hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
-    
-    QApplication app(argc, argv);
-    QApplication::setQuitOnLastWindowClosed(false); 
-    app.setFont(QFont("Segoe UI", 12)); 
-    
-    RasFocusApp window;
-    
-    // Auto-start silently to tray if argument is provided
-    if(cmdArgs.contains("-autostart")) { 
-        window.hide(); 
-    } else { 
-        window.showNormal(); window.raise(); window.activateWindow(); 
-    }
-    
-    int ret = app.exec();
-    UnhookWindowsHookEx(hKeyboardHook);
-    ReleaseMutex(hMutex);
-    return ret;
+    if(isSessionActive||isAutoStart) ShowWindow(hMainWnd,SW_HIDE); else ShowWindow(hMainWnd,SW_SHOW);
+    MSG msg; while(GetMessage(&msg,NULL,0,0)){TranslateMessage(&msg);DispatchMessage(&msg);} 
+    UnhookWindowsHookEx(hKeyboardHook); return 0; 
 }
