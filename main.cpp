@@ -30,7 +30,7 @@
 #include <QSlider>
 #include <QTextEdit>
 #include <QPainter>
-#include <QPainterPath> // FIXED: Missing header included
+#include <QPainterPath> // FIXED: Added missing header
 #include <QPixmap>
 #include <QStyle>
 #include <QMap>
@@ -74,7 +74,7 @@ QStringList timeQuotes = { "\"যারা সময়কে মূল্যা
 
 bool isSessionActive = false, isTimeMode = false, isPassMode = false, useAllowMode = false, isOverlayVisible = false;
 bool blockReels = false, blockShorts = false, isAdblockActive = false, isDarkMode = false;
-bool blockAdult = true; 
+bool blockAdult = true; // ADULT BLOCK ALWAYS ON BY DEFAULT
 bool isPomodoroMode = false, isPomodoroBreak = false, userClosedExpired = false;
 
 int eyeBrightness = 100, eyeWarmth = 0, focusTimeTotalSeconds = 0, timerTicks = 0;
@@ -221,6 +221,7 @@ void ApplyEyeFilters() {
     if(warmAlpha > 0) { warmFilterWidget->setStyleSheet(QString("background-color: rgba(255, 130, 0, %1);").arg(warmAlpha)); warmFilterWidget->show(); } else { warmFilterWidget->hide(); }
 }
 
+// Registry Auto Start (SILENT & NO ADMIN REQUIRED)
 void SetupAutoStart() {
     char p[MAX_PATH]; GetModuleFileNameA(NULL, p, MAX_PATH);
     QString pathWithArg = "\"" + QString(p) + "\" -autostart";
@@ -231,6 +232,7 @@ void SetupAutoStart() {
     }
 }
 
+// Create Desktop Shortcut Automatically
 void CreateDesktopShortcut() {
     char exePath[MAX_PATH]; GetModuleFileNameA(NULL, exePath, MAX_PATH);
     char desktopPath[MAX_PATH];
@@ -290,7 +292,7 @@ protected:
         QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
         int w = 60, h = 32; QRect rect(0, (height()-h)/2, w, h);
         QPainterPath path; path.addRoundedRect(rect, h/2, h/2);
-        p.fillPath(path, isChecked() ? QColor("#1CB8C9") : QColor("#CBD5E1")); 
+        p.fillPath(path, isChecked() ? QColor("#1CB8C9") : QColor("#CBD5E1")); // Teal when checked
         p.setBrush(QColor("#FFFFFF")); p.setPen(Qt::NoPen);
         int handleSize = 24;
         if(isChecked()) p.drawEllipse(w - handleSize - 4, rect.y() + 4, handleSize, handleSize);
@@ -371,12 +373,12 @@ public:
     QLineEdit *editName, *editPass; QSpinBox *spinHr, *spinMin; QPushButton *btnStart, *btnStop;
     QLabel *lblStatus, *lblLicense, *lblAdminMsg; CircularProgress *dashProgress;
     QRadioButton *rbBlock, *rbAllow; QListWidget *listBlockApp, *listBlockWeb, *listAllowApp, *listAllowWeb;
-    QComboBox *cbBlockApp, *cbAllowApp; // FIXED: Removed inBlockWeb and inAllowWeb to avoid redeclaration 
-    QComboBox *inBlockWeb, *inAllowWeb; 
-    QListWidget *listRunning; // FIXED: Added missing variable
+    QComboBox *cbBlockApp, *cbAllowApp; // FIXED: Using QComboBox consistently
+    QComboBox *cbBlockWeb, *cbAllowWeb; // Added combo boxes for websites to match the updated UI
+    QListWidget *listRunning; 
     ToggleSwitch *chkReels, *chkShorts, *chkAdblock; QSpinBox *pomoMin, *pomoSes;
     QPushButton *bPStart, *bPStop; QLabel *lblPomoTime, *lblPomoStatus;
-    ToggleSwitch *chkFocusSound; // FIXED: Changed from QCheckBox to ToggleSwitch
+    ToggleSwitch *chkFocusSound; // FIXED: Changed to ToggleSwitch as per request
     QSlider *sliderBright, *sliderWarm; QTextEdit *chatLog; QLineEdit *chatIn;
     QLineEdit *upgEmail, *upgPhone, *upgTrx; QComboBox *upgPkg;
     QPoint dragPosition; bool isDragging = false;
@@ -519,7 +521,7 @@ public:
 
         stack = new QStackedWidget();
         
-        setupFocusModePage(); // Fixed: Combines old Overview and Lists pages
+        setupFocusModePage(); // Combines old Overview and Lists pages
         setupSchedulePage(); setupAdvancedPage();
         setupToolsPage(); setupSettingsPage(); setupChatPage(); setupUpgradePage();
         
@@ -599,7 +601,6 @@ private:
         rbBlock->setChecked(!useAllowMode); rbAllow->setChecked(useAllowMode);
         optH->addWidget(rbBlock); optH->addWidget(rbAllow); optH->addSpacing(30);
         
-        // FIXED: Using ToggleSwitch instead of QCheckBox
         chkAdblock = new ToggleSwitch("AD BLOCKER (Silent)"); 
         chkReels = new ToggleSwitch("Block FB Reels"); 
         chkShorts = new ToggleSwitch("Block YT Shorts");
@@ -620,13 +621,13 @@ private:
         auto makeBox = [&](QString title, QComboBox*& cbA, QListWidget*& lA, QComboBox*& cbW, QListWidget*& lW, int col) {
             gl->addWidget(new QLabel("<b>" + title + " Apps (e.g., vlc.exe):</b>"), 0, col);
             QHBoxLayout* h1x = new QHBoxLayout(); 
-            cbA = new QComboBox(); cbA->setEditable(true); cbA->setFixedWidth(150);
+            cbA = new QComboBox(); cbA->setEditable(true); cbA->setFixedWidth(90);
             QPushButton* bAddA = new QPushButton("ADD"); bAddA->setStyleSheet(btnSt);
             h1x->addWidget(cbA); h1x->addWidget(bAddA); gl->addLayout(h1x, 1, col);
             lA = new QListWidget(); lA->setStyleSheet(lsSt); gl->addWidget(lA, 2, col);
             
             gl->addWidget(new QLabel("<b>" + title + " Websites:</b>"), 3, col);
-            QHBoxLayout* h2x = new QHBoxLayout(); cbW = new QComboBox(); cbW->setEditable(true); cbW->setFixedWidth(150);
+            QHBoxLayout* h2x = new QHBoxLayout(); cbW = new QComboBox(); cbW->setEditable(true);
             QPushButton* bAddW = new QPushButton("ADD"); bAddW->setStyleSheet(btnSt);
             h2x->addWidget(cbW); h2x->addWidget(bAddW); gl->addLayout(h2x, 4, col);
             lW = new QListWidget(); lW->setStyleSheet(lsSt); gl->addWidget(lW, 5, col);
@@ -634,22 +635,20 @@ private:
             QPushButton* btnRem = new QPushButton("Remove"); btnRem->setStyleSheet("background-color: #3B82F6; color: white; padding: 8px; font-size: 14px;");
             gl->addWidget(btnRem, 6, col);
             
-            connect(bAddA, &QPushButton::clicked, [=](){ QString t = cbA->currentText().trimmed().toLower(); if(!t.isEmpty()){ if(!t.endsWith(".exe")) t += ".exe"; lA->addItem(t); cbA->setCurrentText(""); SyncListsFromUI(); } });
+            connect(bAddA, &QPushButton::clicked, [=](){ QString t = cbA->currentText().trimmed().toLower(); if(t.isEmpty() && cbA->currentIndex()>0) t = cbA->currentText(); if(!t.isEmpty()){ if(!t.endsWith(".exe")) t += ".exe"; lA->addItem(t); cbA->setCurrentIndex(0); SyncListsFromUI(); } });
             connect(bAddW, &QPushButton::clicked, [=](){ QString t = cbW->currentText().trimmed().toLower(); if(!t.isEmpty()){ lW->addItem(t); cbW->setCurrentText(""); SyncListsFromUI(); } });
             connect(btnRem, &QPushButton::clicked, [=](){ if(lA->currentItem()) delete lA->takeItem(lA->currentRow()); if(lW->currentItem()) delete lW->takeItem(lW->currentRow()); SyncListsFromUI(); });
         };
         
-        // FIXED: Using correct variables
         makeBox("Block", cbBlockApp, listBlockApp, inBlockWeb, listBlockWeb, 0);
         
         QVBoxLayout* midL = new QVBoxLayout();
         midL->addWidget(new QLabel("<b>Running Apps (Auto-Detected):</b>"));
         QPushButton* bRun = new QPushButton("Add Selected App to List"); bRun->setStyleSheet(btnSt); midL->addWidget(bRun);
-        listRunning = new QListWidget(); listRunning->setStyleSheet(lsSt); midL->addWidget(listRunning); // FIXED: listRunning is now correctly declared
+        listRunning = new QListWidget(); listRunning->setStyleSheet(lsSt); midL->addWidget(listRunning);
         gl->addLayout(midL, 0, 1, 7, 1);
         connect(bRun, &QPushButton::clicked, [=](){ if(!listRunning->currentItem()) return; QString app = listRunning->currentItem()->text().trimmed().toLower(); if(!app.endsWith(".exe")) app += ".exe"; if(useAllowMode) { listAllowApp->addItem(app); } else { listBlockApp->addItem(app); } SyncListsFromUI(); });
         
-        // FIXED: Using correct variables
         makeBox("Allow", cbAllowApp, listAllowApp, inAllowWeb, listAllowWeb, 2);
         
         l->addLayout(gl);
@@ -712,9 +711,6 @@ private:
         connect(bPStart, &QPushButton::clicked, [=](){ 
             if(!isSessionActive && !isTrialExpired) { 
                 pomoLengthMin = pomoMin->value(); pomoTotalSessions = pomoSes->value(); isPomodoroMode = true; isSessionActive = true; pomoTicks = 0; pomoCurrentSession = 1; SaveAllData(); updateUIStates(); new ToastNotification("🍅 Pomodoro Started!", this); 
-                // FIXED: Changed to chkFocusSound instead of chkReels to correctly toggle the audio
-                // Note: User wanted chkFocusSound in Pomodoro page but it was created in Overview in the provided base code.
-                // Assuming we can trigger audio anyway if in Focus Mode. Since chkFocusSound is on another page, checking it here works.
                 if (chkFocusSound && chkFocusSound->isChecked()) ManageFocusSound(true); 
             } 
         });
