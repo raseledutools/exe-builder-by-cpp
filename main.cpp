@@ -413,25 +413,25 @@ public:
             QCheckBox { color: %3; font-family: 'Segoe UI'; font-size: 15px; }
             
             /* Hardcoded pure white, teal border, bold black text for inputs */
-            QLineEdit, QSpinBox { 
+            QLineEdit, QSpinBox, QTextEdit { 
                 padding: 10px 15px; 
-                border: 1px solid #15AABF; 
+                border: 2px solid #15AABF; 
                 border-radius: 6px; 
-                background-color: #FFFFFF; 
-                color: #1E293B; 
+                background-color: #FFFFFF !important; 
+                color: #000000 !important; 
                 font-size: 15px; 
-                font-weight: bold; 
+                font-weight: bold !important; 
                 min-height: 20px; 
             }
             
             QComboBox { 
                 padding: 10px 15px; 
-                border: 1px solid #15AABF; 
+                border: 2px solid #15AABF; 
                 border-radius: 6px; 
-                background-color: #FFFFFF; 
-                color: #1E293B; 
+                background-color: #FFFFFF !important; 
+                color: #000000 !important; 
                 font-size: 15px; 
-                font-weight: bold; 
+                font-weight: bold !important; 
                 min-height: 20px; 
             }
             
@@ -441,17 +441,17 @@ public:
                 border-top: 6px solid #15AABF; margin-right: 10px; 
             }
             
-            QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 2px solid #1298AB; }
-            QLineEdit:disabled, QSpinBox:disabled { background-color: #E2E8F0; color: #94A3B8; font-weight: normal; border: 1px solid #CBD5E1; }
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QTextEdit:focus { border: 2px solid #1298AB; background-color: #FFFFFF !important; }
+            QLineEdit:disabled, QSpinBox:disabled { background-color: #E2E8F0 !important; color: #94A3B8 !important; font-weight: bold !important; border: 1px solid #CBD5E1; }
             
             /* The dropdown list items styling */
             QComboBox QAbstractItemView { 
-                background-color: #FFFFFF; 
-                color: #1E293B; 
+                background-color: #FFFFFF !important; 
+                color: #000000 !important; 
                 border: 1px solid #15AABF; 
                 selection-background-color: #15AABF; 
-                selection-color: #FFFFFF; 
-                font-weight: bold; 
+                selection-color: #FFFFFF !important; 
+                font-weight: bold !important; 
                 font-size: 15px; 
                 outline: none; 
             }
@@ -699,8 +699,8 @@ private:
         QGridLayout* gl = new QGridLayout(); 
         gl->setSpacing(25); // Gives room between list panels
         
-        QString lsSt = "QListWidget { background: #FFFFFF; border: 1px solid #15AABF; font-size: 15px; border-radius: 6px; outline: none; } QListWidget::item { border-bottom: 1px solid #F1F5F9;}";
-        QString lsStRun = "QListWidget { background: #FFFFFF; border: 1px solid #15AABF; font-size: 15px; border-radius: 6px; padding: 5px; outline: none; } QListWidget::item { padding: 8px; color: #334155; font-weight: bold; border-bottom: 1px solid #F1F5F9; } QListWidget::item:selected { background-color: #E0F2FE; color: #0369A1; border-radius: 4px; }";
+        QString lsSt = "QListWidget { background: #FFFFFF !important; border: 1px solid #15AABF; font-size: 15px; border-radius: 6px; outline: none; } QListWidget::item { color: #000000 !important; font-weight: bold !important; border-bottom: 1px solid #F1F5F9;}";
+        QString lsStRun = "QListWidget { background: #FFFFFF !important; border: 1px solid #15AABF; font-size: 15px; border-radius: 6px; padding: 5px; outline: none; } QListWidget::item { padding: 8px; color: #000000 !important; font-weight: bold !important; border-bottom: 1px solid #F1F5F9; } QListWidget::item:selected { background-color: #E0F2FE !important; color: #0369A1 !important; border-radius: 4px; }";
         
         auto makeBox = [&](QString title, QComboBox*& cbA, QListWidget*& lA, QComboBox*& cbW, QListWidget*& lW, int col) {
             gl->addWidget(new QLabel("<b>" + title + " Apps (e.g., vlc.exe):</b>"), 0, col);
@@ -994,8 +994,8 @@ private:
         pomoMin->setEnabled(!isSessionActive); pomoSes->setEnabled(!isSessionActive); bPStart->setEnabled(!isSessionActive); bPStop->setEnabled(isSessionActive);
         rbBlock->setEnabled(!isSessionActive); rbAllow->setEnabled(!isSessionActive); 
         if(chkFocusSound) chkFocusSound->setEnabled(!isSessionActive);
-        if(cbBlockApp) cbBlockApp->setEnabled(!isSessionActive); if(cbBlockWeb) cbBlockWeb->setEnabled(!isSessionActive); // FIXED: Using correct variables
-        if(cbAllowApp) cbAllowApp->setEnabled(!isSessionActive); if(cbAllowWeb) cbAllowWeb->setEnabled(!isSessionActive); // FIXED: Using correct variables
+        if(cbBlockApp) cbBlockApp->setEnabled(!isSessionActive); if(cbBlockWeb) cbBlockWeb->setEnabled(!isSessionActive); 
+        if(cbAllowApp) cbAllowApp->setEnabled(!isSessionActive); if(cbAllowWeb) cbAllowWeb->setEnabled(!isSessionActive); 
         if(listBlockApp) listBlockApp->setEnabled(!isSessionActive); if(listBlockWeb) listBlockWeb->setEnabled(!isSessionActive);
         if(listAllowApp) listAllowApp->setEnabled(!isSessionActive); if(listAllowWeb) listAllowWeb->setEnabled(!isSessionActive);
         if(isSessionActive) lblStatus->setText("🔒 Focus Active."); else lblStatus->setText("");
@@ -1175,6 +1175,3 @@ int main(int argc, char *argv[]) {
     UnhookWindowsHookEx(hKeyboardHook);
     ReleaseMutex(hMutex);
     return ret;
-}
-
-}
