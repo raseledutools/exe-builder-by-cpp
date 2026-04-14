@@ -69,7 +69,7 @@ QStringList commonThirdPartyApps = { "chrome.exe", "msedge.exe", "firefox.exe", 
 QStringList explicitKeywords = { "porn", "xxx", "sex", "nude", "nsfw", "xvideos", "pornhub", "xnxx", "xhamster", "brazzers", "onlyfans", "playboy", "mia khalifa", "bhabi", "chudai", "bangla choti", "magi", "sexy" };
 QStringList safeBrowserTitles = { "new tab", "start", "blank page", "allowed websites", "loading", "untitled", "connecting", "pomodoro break" };
 
-QStringList islamicQuotes = { "\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং গঠনমূলক কাজ করুন।\" - (সূরা আন-নূর: ৩০)", "\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে বোমা।\" - (সহীহ বুখারী)" };
+QStringList islamicQuotes = { "\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং গঠনমূলক কাজ করুন।\" - (সূরা আন-নূর: ৩০)", "\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে না।\" - (সহীহ বুখারী)" };
 QStringList timeQuotes = { "\"যারা সময়কে মূল্যায়ন করে না, সময়ও তাদেরকে মূল্যায়ন করে না।\" - এ.পি.জে. আবদুল কালাম" };
 
 bool isSessionActive = false, isTimeMode = false, isPassMode = false, useAllowMode = false, isOverlayVisible = false;
@@ -405,36 +405,61 @@ public:
         QString bgCard = isDarkMode ? "#1E293B" : "#FFFFFF";
         QString textMain = isDarkMode ? "#F8FAFC" : "#1E293B";
         QString borderCol = isDarkMode ? "#334155" : "#E2E8F0";
-        QString inputBg = isDarkMode ? "#0F172A" : "#FFFFFF";
         
+        // FIX: Hardcoded input styles to guarantee pure white background, teal border, and bold black text
         QString baseStyle = QString(R"(
             QMainWindow { background-color: %1; }
             QLabel, QRadioButton { color: %3; font-size: 15px; font-family: 'Segoe UI', sans-serif; }
             QCheckBox { color: %3; font-family: 'Segoe UI'; font-size: 15px; }
             
+            /* Hardcoded pure white, teal border, bold black text for inputs */
             QLineEdit, QSpinBox { 
-                padding: 10px 15px; border: 1px solid %4; border-radius: 6px; 
-                background: %5; color: %3; font-size: 15px; font-weight: bold; min-height: 20px; 
+                padding: 10px 15px; 
+                border: 1px solid #15AABF; 
+                border-radius: 6px; 
+                background-color: #FFFFFF; 
+                color: #1E293B; 
+                font-size: 15px; 
+                font-weight: bold; 
+                min-height: 20px; 
             }
             
             QComboBox { 
-                padding: 10px 15px; border: 1px solid %4; border-radius: 6px; 
-                background: %5; color: %3; font-size: 15px; font-weight: bold; min-height: 20px; 
+                padding: 10px 15px; 
+                border: 1px solid #15AABF; 
+                border-radius: 6px; 
+                background-color: #FFFFFF; 
+                color: #1E293B; 
+                font-size: 15px; 
+                font-weight: bold; 
+                min-height: 20px; 
             }
+            
             QComboBox::drop-down { border: none; width: 35px; }
             QComboBox::down-arrow { 
                 image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; 
                 border-top: 6px solid #15AABF; margin-right: 10px; 
             }
             
-            QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 2px solid #15AABF; }
-            QLineEdit:disabled, QSpinBox:disabled { background: #E2E8F0; color: #94A3B8; font-weight: normal; }
-            QComboBox QAbstractItemView { background: %5; border: 1px solid #15AABF; selection-background-color: #15AABF; selection-color: #FFFFFF; font-weight: bold; font-size: 14px; outline: none; }
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 2px solid #1298AB; }
+            QLineEdit:disabled, QSpinBox:disabled { background-color: #E2E8F0; color: #94A3B8; font-weight: normal; border: 1px solid #CBD5E1; }
+            
+            /* The dropdown list items styling */
+            QComboBox QAbstractItemView { 
+                background-color: #FFFFFF; 
+                color: #1E293B; 
+                border: 1px solid #15AABF; 
+                selection-background-color: #15AABF; 
+                selection-color: #FFFFFF; 
+                font-weight: bold; 
+                font-size: 15px; 
+                outline: none; 
+            }
             
             QScrollBar:vertical { border: none; background: transparent; width: 10px; margin: 0px; }
             QScrollBar::handle:vertical { background: #CBD5E1; min-height: 40px; border-radius: 5px; }
             QScrollBar::handle:vertical:hover { background: #15AABF; }
-        )").arg(bgMain, bgCard, textMain, borderCol, inputBg); 
+        )").arg(bgMain, bgCard, textMain, borderCol); 
         
         setStyleSheet(baseStyle);
         stack->setStyleSheet(QString("QStackedWidget { background-color: %1; }").arg(bgMain));
@@ -674,8 +699,8 @@ private:
         QGridLayout* gl = new QGridLayout(); 
         gl->setSpacing(25); // Gives room between list panels
         
-        QString lsSt = "QListWidget { background: #FFFFFF; border: 1px solid #CBD5E1; font-size: 15px; border-radius: 6px; outline: none; } QListWidget::item { border-bottom: 1px solid #F1F5F9;}";
-        QString lsStRun = "QListWidget { background: #FFFFFF; border: 1px solid #CBD5E1; font-size: 15px; border-radius: 6px; padding: 5px; outline: none; } QListWidget::item { padding: 8px; color: #334155; font-weight: bold; border-bottom: 1px solid #F1F5F9; } QListWidget::item:selected { background-color: #E0F2FE; color: #0369A1; border-radius: 4px; }";
+        QString lsSt = "QListWidget { background: #FFFFFF; border: 1px solid #15AABF; font-size: 15px; border-radius: 6px; outline: none; } QListWidget::item { border-bottom: 1px solid #F1F5F9;}";
+        QString lsStRun = "QListWidget { background: #FFFFFF; border: 1px solid #15AABF; font-size: 15px; border-radius: 6px; padding: 5px; outline: none; } QListWidget::item { padding: 8px; color: #334155; font-weight: bold; border-bottom: 1px solid #F1F5F9; } QListWidget::item:selected { background-color: #E0F2FE; color: #0369A1; border-radius: 4px; }";
         
         auto makeBox = [&](QString title, QComboBox*& cbA, QListWidget*& lA, QComboBox*& cbW, QListWidget*& lW, int col) {
             gl->addWidget(new QLabel("<b>" + title + " Apps (e.g., vlc.exe):</b>"), 0, col);
@@ -908,7 +933,6 @@ private:
         if(Process32FirstW(h, &pe)) { do { QString n = QString::fromWCharArray(pe.szExeFile).toLower(); if(!systemApps.contains(n)) p << n; } while(Process32NextW(h, &pe)); } CloseHandle(h); p.removeDuplicates(); p.sort(Qt::CaseInsensitive); return p;
     }
 
-    // FIX: Extract strings from custom labels inside list widgets for proper sync
     void SyncListsFromUI() { 
         QStringList bA, bW, aA, aW;
         auto extract = [](QListWidget* lw, QStringList& list) {
@@ -961,22 +985,20 @@ private:
 
     void ClearSessionData() {
         isSessionActive = isTimeMode = isPassMode = isPomodoroMode = isPomodoroBreak = false; currentSessionPass = ""; focusTimeTotalSeconds = timerTicks = pomoTicks = 0; pomoCurrentSession = 1;
-        if(lblStatus) lblStatus->setText(""); SaveAllData(); updateUIStates(); ManageFocusSound(false); 
+        lblStatus->setText(""); SaveAllData(); updateUIStates(); ManageFocusSound(false); 
     }
 
     void updateUIStates() {
-        if(btnStart) btnStart->setEnabled(!isSessionActive); if(btnStop) btnStop->setEnabled(isSessionActive);
-        if(editPass) editPass->setEnabled(!isSessionActive); if(spinHr) spinHr->setEnabled(!isSessionActive); if(spinMin) spinMin->setEnabled(!isSessionActive);
-        if(pomoMin) pomoMin->setEnabled(!isSessionActive); if(pomoSes) pomoSes->setEnabled(!isSessionActive); if(bPStart) bPStart->setEnabled(!isSessionActive); if(bPStop) bPStop->setEnabled(isSessionActive);
-        if(rbBlock) rbBlock->setEnabled(!isSessionActive); if(rbAllow) rbAllow->setEnabled(!isSessionActive); 
+        btnStart->setEnabled(!isSessionActive); btnStop->setEnabled(isSessionActive);
+        editPass->setEnabled(!isSessionActive); spinHr->setEnabled(!isSessionActive); spinMin->setEnabled(!isSessionActive);
+        pomoMin->setEnabled(!isSessionActive); pomoSes->setEnabled(!isSessionActive); bPStart->setEnabled(!isSessionActive); bPStop->setEnabled(isSessionActive);
+        rbBlock->setEnabled(!isSessionActive); rbAllow->setEnabled(!isSessionActive); 
         if(chkFocusSound) chkFocusSound->setEnabled(!isSessionActive);
-        if(cbBlockApp) cbBlockApp->setEnabled(!isSessionActive); if(cbBlockWeb) cbBlockWeb->setEnabled(!isSessionActive);
-        if(cbAllowApp) cbAllowApp->setEnabled(!isSessionActive); if(cbAllowWeb) cbAllowWeb->setEnabled(!isSessionActive);
+        if(cbBlockApp) cbBlockApp->setEnabled(!isSessionActive); if(cbBlockWeb) cbBlockWeb->setEnabled(!isSessionActive); // FIXED: Using correct variables
+        if(cbAllowApp) cbAllowApp->setEnabled(!isSessionActive); if(cbAllowWeb) cbAllowWeb->setEnabled(!isSessionActive); // FIXED: Using correct variables
         if(listBlockApp) listBlockApp->setEnabled(!isSessionActive); if(listBlockWeb) listBlockWeb->setEnabled(!isSessionActive);
         if(listAllowApp) listAllowApp->setEnabled(!isSessionActive); if(listAllowWeb) listAllowWeb->setEnabled(!isSessionActive);
-        if(lblStatus) {
-            if(isSessionActive) lblStatus->setText("🔒 Focus Active."); else lblStatus->setText("");
-        }
+        if(isSessionActive) lblStatus->setText("🔒 Focus Active."); else lblStatus->setText("");
     }
 
     void SyncProfileNameToFirebase(QString name) { QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=profileName&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ profileName = @{ stringValue = '" + name + "' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
@@ -1105,14 +1127,12 @@ private:
 
     void syncLoop() { 
         ValidateLicenseAndTrial(); SyncLiveTrackerToFirebase(); 
-        if (isTrialExpired) { if(lblLicense) {lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 30px;");} stack->setEnabled(false); if(!isSessionActive) { QMessageBox::critical(this, "Expired", "License Expired! Please upgrade from the premium tab.", QMessageBox::Ok); stack->setEnabled(true); sidebar->setCurrentRow(7); } }
-        else if (isLicenseValid) { if(lblLicense) {lblLicense->setText(QString("PREMIUM: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: #10B981; font-weight: bold; margin-left: 20px;");} stack->setEnabled(true); if(sidebar->count() > 7) sidebar->item(7)->setHidden(true); }
-        else { if(lblLicense) {lblLicense->setText(QString("TRIAL: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: #F59E0B; font-weight: bold; margin-left: 20px;");} stack->setEnabled(true); }
+        if (isTrialExpired) { lblLicense->setText("LICENSE EXPIRED"); lblLicense->setStyleSheet("color: red; font-weight: bold; margin-left: 30px;"); stack->setEnabled(false); if(!isSessionActive) { QMessageBox::critical(this, "Expired", "License Expired! Please upgrade from the premium tab.", QMessageBox::Ok); stack->setEnabled(true); sidebar->setCurrentRow(7); } }
+        else if (isLicenseValid) { lblLicense->setText(QString("PREMIUM: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: #10B981; font-weight: bold; margin-left: 20px;"); stack->setEnabled(true); if(sidebar->count() > 7) sidebar->item(7)->setHidden(true); }
+        else { lblLicense->setText(QString("TRIAL: %1 DAYS LEFT").arg(trialDaysLeft)); lblLicense->setStyleSheet("color: #F59E0B; font-weight: bold; margin-left: 20px;"); stack->setEnabled(true); }
         
-        if(lblAdminMsg) {
-            if(!safeAdminMsg.isEmpty()) lblAdminMsg->setText("Admin Notice: " + safeAdminMsg); else lblAdminMsg->setText("");
-        }
-        if(!pendingAdminChatStr.isEmpty()) { if(chatLog) chatLog->append("<span style='color:#EC4899;'><b>Admin:</b></span> " + pendingAdminChatStr); pendingAdminChatStr = ""; }
+        if(!safeAdminMsg.isEmpty()) lblAdminMsg->setText("Admin Notice: " + safeAdminMsg); else lblAdminMsg->setText("");
+        if(!pendingAdminChatStr.isEmpty()) { chatLog->append("<span style='color:#EC4899;'><b>Admin:</b></span> " + pendingAdminChatStr); pendingAdminChatStr = ""; }
         if(!pendingBroadcastMsg.isEmpty() && pendingBroadcastMsg != "ACK") { currentBroadcastMsg = pendingBroadcastMsg; pendingBroadcastMsg = ""; QMessageBox::information(this, "Admin Broadcast", currentBroadcastMsg); QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=broadcastMsg&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ broadcastMsg = @{ stringValue = 'ACK' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
         if(pendingAdminCmd == 1 && !isSessionActive) { pendingAdminCmd = 0; currentSessionPass = "12345"; isPassMode = true; isTimeMode = false; isPomodoroMode = false; isSessionActive = true; SaveAllData(); updateUIStates(); hide(); QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ adminCmd = @{ stringValue = 'ACK_START' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
         else if(pendingAdminCmd == 2 && isSessionActive) { pendingAdminCmd = 0; ClearSessionData(); updateUIStates(); QString dId = GetDeviceID(); QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; runPowerShell("$body = @{ fields = @{ adminCmd = @{ stringValue = 'ACK_STOP' } } } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Uri '" + url + "' -Method Patch -Body $body -ContentType 'application/json'"); }
@@ -1140,11 +1160,11 @@ int main(int argc, char *argv[]) {
     
     QApplication app(argc, argv);
     QApplication::setQuitOnLastWindowClosed(false); 
-    // ENFORCE SEGOE UI
-    app.setFont(QFont("Segoe UI", 11)); 
+    app.setFont(QFont("Segoe UI", 12)); 
     
     RasFocusApp window;
     
+    // Auto-start silently to tray if argument is provided
     if(cmdArgs.contains("-autostart")) { 
         window.hide(); 
     } else { 
@@ -1155,4 +1175,6 @@ int main(int argc, char *argv[]) {
     UnhookWindowsHookEx(hKeyboardHook);
     ReleaseMutex(hMutex);
     return ret;
+}
+
 }
