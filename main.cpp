@@ -64,6 +64,9 @@
 
 using namespace std;
 
+// এখানে শুধু ডিক্লেয়ারেশন থাকবে, কারণ তোমার adblocker.cpp তে ফাংশনটা আছে
+extern void ToggleAdBlock(bool enable);
+
 // ==========================================
 // GLOBALS & DATA
 // ==========================================
@@ -73,7 +76,7 @@ QStringList commonThirdPartyApps = { "chrome.exe", "msedge.exe", "firefox.exe", 
 QStringList explicitKeywords = { "porn", "xxx", "sex", "nude", "nsfw", "xvideos", "pornhub", "xnxx", "xhamster", "brazzers", "onlyfans", "playboy", "mia khalifa", "bhabi", "chudai", "bangla choti", "magi", "sexy" };
 QStringList safeBrowserTitles = { "new tab", "start", "blank page", "allowed websites", "loading", "untitled", "connecting", "pomodoro break" };
 
-QStringList islamicQuotes = { "\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং গঠনমূলক কাজ করুন।\" - (সূরা আন-নূর: ৩০)", "\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে না।\" - (সহীহ বুখারী)" };
+QStringList islamicQuotes = { "\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং গঠনমূলক কাজ করুন।\" - (সূরা আন-নূর: ৩০)", "\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে ভো।\" - (সহীহ বুখারী)" };
 QStringList timeQuotes = { "\"যারা সময়কে মূল্যায়ন করে না, সময়ও তাদেরকে মূল্যায়ন করে না।\" - এ.পি.জে. আবদুল কালাম" };
 
 bool isSessionActive = false, isTimeMode = false, isPassMode = false, useAllowMode = false, isOverlayVisible = false;
@@ -103,37 +106,6 @@ DWORD lastUsageUpdate = 0;
 
 const QString MUTEX_NAME = "RasFocusPro_SingleInstance_Mutex";
 const UINT WM_WAKEUP = RegisterWindowMessageA("RasFocusPro_Wakeup");
-
-// ==========================================
-// FIX 2: ToggleAdBlock Implementation
-// ==========================================
-void ToggleAdBlock(bool enable) {
-    QString hostsPath = "C:\\Windows\\System32\\drivers\\etc\\hosts";
-    QFile file(hostsPath);
-    if (!file.open(QIODevice::ReadWrite | QIODevice::Text)) return;
-    
-    QString content = file.readAll();
-    file.close();
-    
-    QString adBlockLines = "\n# RASFOCUS_ADBLOCK_START\n127.0.0.1 doubleclick.net\n127.0.0.1 googleadservices.com\n127.0.0.1 googlesyndication.com\n# RASFOCUS_ADBLOCK_END\n";
-    
-    if (enable && !content.contains("RASFOCUS_ADBLOCK_START")) {
-        if (file.open(QIODevice::Append | QIODevice::Text)) {
-            QTextStream out(&file);
-            out << adBlockLines;
-            file.close();
-        }
-    } else if (!enable && content.contains("RASFOCUS_ADBLOCK_START")) {
-        int start = content.indexOf("# RASFOCUS_ADBLOCK_START");
-        int end = content.indexOf("# RASFOCUS_ADBLOCK_END") + 23;
-        content.remove(start, end - start);
-        if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-            QTextStream out(&file);
-            out << content;
-            file.close();
-        }
-    }
-}
 
 // ==========================================
 // AUDIO PLAYBACK UTILITY
@@ -599,7 +571,7 @@ public:
         applyTheme(); 
         
         connect(sidebar, &QListWidget::currentRowChanged, [=](int idx){
-            stack->setCurrentIndex(idx); // Removed QGraphicsOpacityEffect to prevent memory leak and freeze
+            stack->setCurrentIndex(idx); 
         });
         
         sidebar->setCurrentRow(0); setupTray(); LoadAllData(); ApplyEyeFilters();
