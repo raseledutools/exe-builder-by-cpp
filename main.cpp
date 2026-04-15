@@ -165,9 +165,6 @@ QString GetSecretDir() {
     return dir + "/";
 }
 
-// ==========================================
-// FIX 5: String Spacing and Memory Leak
-// ==========================================
 bool CheckMatch(QString url, QString sTitle) {
     QString t = sTitle; t.remove(' '); 
     QString exact = url.toLower(); exact.remove(' ');
@@ -219,12 +216,9 @@ void ShowCustomOverlay(int type) {
     QRect screenRect = QGuiApplication::primaryScreen()->geometry();
     overlayWidget->move((screenRect.width() - overlayWidget->width()) / 2, (screenRect.height() - overlayWidget->height()) / 2);
     
-    // ==========================================
-    // FIX 6: Timer Bug in CheckAlwaysOnAdultFilter
-    // ==========================================
     isOverlayVisible = true; 
     overlayWidget->show(); 
-    overlayHideTimer->start(6000); // Restarts the timer cleanly without stacking
+    overlayHideTimer->start(6000); 
 }
 
 LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -420,11 +414,10 @@ public:
     QComboBox *cbBlockApp = nullptr, *cbAllowApp = nullptr; 
     QComboBox *cbBlockWeb = nullptr, *cbAllowWeb = nullptr; 
     QListWidget *listRunning = nullptr; 
-    ToggleSwitch *chkReels = nullptr, *chkShorts = nullptr, *chkAdblock = nullptr; 
+    ToggleSwitch *chkReels = nullptr, *chkShorts = nullptr, *chkAdblock = nullptr, *chkFocusSound = nullptr; 
     QSpinBox *pomoMin = nullptr, *pomoSes = nullptr;
     QPushButton *bPStart = nullptr, *bPStop = nullptr; 
     QLabel *lblPomoTime = nullptr, *lblPomoStatus = nullptr;
-    ToggleSwitch *chkFocusSound = nullptr; 
     QSlider *sliderBright = nullptr, *sliderWarm = nullptr; 
     QTextEdit *chatLog = nullptr; 
     QLineEdit *chatIn = nullptr;
@@ -702,10 +695,11 @@ private:
         rbBlock->setChecked(!useAllowMode); rbAllow->setChecked(useAllowMode);
         toolsRow->addWidget(rbBlock); toolsRow->addWidget(rbAllow); toolsRow->addSpacing(30);
         
-        chkAdblock = new QCheckBox("AD BLOCKER (Silent)"); 
-        chkReels = new QCheckBox("Block FB Reels"); 
-        chkShorts = new QCheckBox("Block YT Shorts");
-        toolsRow->addWidget(chkAdblock); toolsRow->addWidget(chkReels); toolsRow->addWidget(chkShorts);
+        chkAdblock = new ToggleSwitch("AD BLOCKER (Silent)"); 
+        chkReels = new ToggleSwitch("Block FB Reels"); 
+        chkShorts = new ToggleSwitch("Block YT Shorts");
+        chkFocusSound = new ToggleSwitch("Focus Sound"); 
+        toolsRow->addWidget(chkAdblock); toolsRow->addWidget(chkReels); toolsRow->addWidget(chkShorts); toolsRow->addWidget(chkFocusSound);
         toolsRow->addStretch();
         
         mainL->addLayout(toolsRow);
@@ -1270,19 +1264,32 @@ private:
             networkManager->sendCustomRequest(request, "PATCH", data);
         }
     }
-    void closeEvent(QCloseEvent *event) override { event->ignore(); hide(); }
+    
+    // Fix 5: Exit completely without hanging or hiding in background forever
+    void closeEvent(QCloseEvent *event) override { 
+        QApplication::quit(); // This fully closes the app when the X button is pressed
+    }
 };
 
 int main(int argc, char *argv[]) {
     CreateDesktopShortcut();
     HANDLE hMutex = CreateMutexA(NULL, TRUE, MUTEX_NAME.toStdString().c_str());
-    if (GetLastError() == ERROR_ALREADY_EXISTS) { SendMessageA(HWND_BROADCAST, WM_WAKEUP, 0, 0); return 0; }
+    
+    // Fix 6: Safely handle double opening without hanging
+    if (GetLastError() == ERROR_ALREADY_EXISTS) { 
+        HWND hwnd = FindWindowA(NULL, "RasFocus Pro");
+        if (hwnd) { PostMessage(hwnd, WM_WAKEUP, 0, 0); }
+        return 0; 
+    }
+    
     SetupAutoStart(); 
 
     QString cmdArgs = ""; for(int i=1; i<argc; i++) cmdArgs += QString(argv[i]) + " ";
     hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
     QApplication app(argc, argv);
-    QApplication::setQuitOnLastWindowClosed(false); 
+    
+    // Prevent app hanging in background if all windows are closed
+    QApplication::setQuitOnLastWindowClosed(true); 
     
     RasFocusApp window;
     if(cmdArgs.contains("-autostart")) { window.hide(); } else { window.showNormal(); window.raise(); window.activateWindow(); }
