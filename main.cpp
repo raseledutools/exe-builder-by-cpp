@@ -52,19 +52,17 @@
 // Windows API
 #include <windows.h>
 #include <tlhelp32.h>
-#include <wininet.h>
 #include <shlobj.h>
 #include <objbase.h>
 #include <mmsystem.h>
 
-#pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "winmm.lib")
 
 using namespace std;
 
-// এখানে শুধু ডিক্লেয়ারেশন থাকবে, কারণ তোমার adblocker.cpp তে ফাংশনটা আছে
+// Declaration for AdBlocker (assuming implementation exists in adblocker.cpp)
 extern void ToggleAdBlock(bool enable);
 
 // ==========================================
@@ -76,7 +74,7 @@ QStringList commonThirdPartyApps = { "chrome.exe", "msedge.exe", "firefox.exe", 
 QStringList explicitKeywords = { "porn", "xxx", "sex", "nude", "nsfw", "xvideos", "pornhub", "xnxx", "xhamster", "brazzers", "onlyfans", "playboy", "mia khalifa", "bhabi", "chudai", "bangla choti", "magi", "sexy" };
 QStringList safeBrowserTitles = { "new tab", "start", "blank page", "allowed websites", "loading", "untitled", "connecting", "pomodoro break" };
 
-QStringList islamicQuotes = { "\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং গঠনমূলক কাজ করুন।\" - (সূরা আন-নূর: ৩০)", "\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে ভো।\" - (সহীহ বুখারী)" };
+QStringList islamicQuotes = { "\"মুমিনদের বলুন, তারা যেন তাদের দৃষ্টি নত রাখে এবং গঠনমূলক কাজ করুন।\" - (সূরা আন-নূর: ৩০)", "\"লজ্জাশীলতা কল্যাণ ছাড়া আর কিছুই বয়ে আনে না।\" - (সহীহ বুখারী)" };
 QStringList timeQuotes = { "\"যারা সময়কে মূল্যায়ন করে না, সময়ও তাদেরকে মূল্যায়ন করে না।\" - এ.পি.জে. আবদুল কালাম" };
 
 bool isSessionActive = false, isTimeMode = false, isPassMode = false, useAllowMode = false, isOverlayVisible = false;
@@ -676,7 +674,7 @@ private:
         
         mainL->addLayout(toolsRow);
         
-        // Signal-Slot for Buttons (Replaces WM_COMMAND)
+        // Signal-Slot for Buttons
         connect(btnSave, &QPushButton::clicked, [=](){ userProfileName = editName->text(); SaveAllData(); SyncProfileNameToFirebase(userProfileName); new ToastNotification("✅ Saved", this); });
         connect(btnStart, &QPushButton::clicked, this, &RasFocusApp::onStartFocus); connect(btnStop, &QPushButton::clicked, this, &RasFocusApp::onStopFocus);
         connect(btnSW, &QPushButton::clicked, [=](){ sidebar->setCurrentRow(3); if(!swWindow) swWindow = new StopwatchWindow(); swWindow->showNormal(); swWindow->activateWindow(); });
@@ -702,32 +700,41 @@ private:
                     this->SyncListsFromUI(); 
                 });
             } else {
-                // Smaller input boxes for lists
                 col->addWidget(new QLabel(QString("%1 Apps (e.g., vlc.exe):").arg(title)));
                 QHBoxLayout* h1 = new QHBoxLayout(); 
-                cbA = new QComboBox(); cbA->setEditable(true); cbA->setFixedHeight(28); // Smaller input
+                cbA = new QComboBox(); cbA->setEditable(true); cbA->setFixedHeight(28); 
                 QPushButton* b1 = new QPushButton("ADD"); b1->setStyleSheet(btnStaticBlue); b1->setFixedSize(60, 28);
                 h1->addWidget(cbA, 1); h1->addWidget(b1); col->addLayout(h1);
                 lA = new QListWidget(); col->addWidget(lA, 1);
                 
                 col->addWidget(new QLabel(QString("%1 Websites:").arg(title)));
                 QHBoxLayout* h2 = new QHBoxLayout(); 
-                cbW = new QComboBox(); cbW->setEditable(true); cbW->setFixedHeight(28); // Smaller input
+                cbW = new QComboBox(); cbW->setEditable(true); cbW->setFixedHeight(28); 
                 QPushButton* b2 = new QPushButton("ADD"); b2->setStyleSheet(btnStaticBlue); b2->setFixedSize(60, 28);
                 h2->addWidget(cbW, 1); h2->addWidget(b2); col->addLayout(h2);
                 lW = new QListWidget(); col->addWidget(lW, 1);
                 
-                // Fix 5: Remove button bug fixed (only removes from selected list)
+                // Fix 4: Correctly binding remove button logic per column
                 QPushButton* bRem = new QPushButton("Remove"); bRem->setStyleSheet(btnStaticBlue);
                 col->addWidget(bRem);
 
                 connect(b1, &QPushButton::clicked, [=](){ QString t = cbA->currentText().trimmed().toLower(); if(!t.isEmpty()){ if(!t.endsWith(".exe")) t += ".exe"; addListItemWithX(lA, t); cbA->setCurrentText(""); this->SyncListsFromUI(); } });
                 connect(b2, &QPushButton::clicked, [=](){ QString t = cbW->currentText().trimmed().toLower(); if(!t.isEmpty()){ addListItemWithX(lW, t); cbW->setCurrentText(""); this->SyncListsFromUI(); } });
-                connect(bRem, &QPushButton::clicked, [=](){
+                
+                // Captured pointers directly by value to avoid lambda scope override issue
+                QListWidget* appListPtr = lA;
+                QListWidget* webListPtr = lW;
+                
+                connect(bRem, &QPushButton::clicked, [=]() {
                     bool removed = false;
-                    if(lA->hasFocus() && lA->currentItem()) { delete lA->takeItem(lA->currentRow()); removed = true; }
-                    else if(lW->hasFocus() && lW->currentItem()) { delete lW->takeItem(lW->currentRow()); removed = true; }
-                    if(removed) this->SyncListsFromUI();
+                    if (appListPtr->hasFocus() && appListPtr->currentItem()) {
+                        delete appListPtr->takeItem(appListPtr->currentRow());
+                        removed = true;
+                    } else if (webListPtr->hasFocus() && webListPtr->currentItem()) {
+                        delete webListPtr->takeItem(webListPtr->currentRow());
+                        removed = true;
+                    }
+                    if (removed) this->SyncListsFromUI();
                 });
             }
             return col;
@@ -831,7 +838,6 @@ private:
             QString msg = chatIn->text().trimmed(); if(!msg.isEmpty()) { 
                 chatLog->append("<b style='color:#15AABF;'>You:</b> " + msg); chatIn->clear(); 
                 
-                // Fix 4: Use QNetworkAccessManager instead of PowerShell for Firebase
                 QString dId = GetDeviceID(); 
                 QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=liveChatUser&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
                 
@@ -849,7 +855,9 @@ private:
                 QJsonDocument doc(bodyObj);
                 QByteArray data = doc.toJson();
                 
-                networkManager->sendCustomRequest(request, "PATCH", data);
+                // Fix 1: Properly handle memory leaks by deleting network replies
+                QNetworkReply *reply = networkManager->sendCustomRequest(request, "PATCH", data);
+                connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
             } 
         });
         stack->addWidget(page);
@@ -868,7 +876,6 @@ private:
         connect(bSub, &QPushButton::clicked, [=](){ 
             if(upgEmail->text().isEmpty() || upgPhone->text().isEmpty() || upgTrx->text().isEmpty()) { new ToastNotification("⚠️ Fill all fields!", this); return; } 
             
-            // Fix 4: Use QNetworkAccessManager instead of PowerShell for Firebase
             QString dId = GetDeviceID(); 
             QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
             
@@ -891,7 +898,9 @@ private:
             QJsonDocument doc(bodyObj);
             QByteArray data = doc.toJson();
             
-            networkManager->sendCustomRequest(request, "PATCH", data);
+            // Fix 1: Properly handle memory leaks by deleting network replies
+            QNetworkReply *reply = networkManager->sendCustomRequest(request, "PATCH", data);
+            connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
             
             new ToastNotification("✅ Request Sent!", this); 
         });
@@ -988,7 +997,6 @@ private:
     }
 
     void SyncProfileNameToFirebase(QString name) { 
-        // Fix 4: Use QNetworkAccessManager instead of PowerShell for Firebase
         QString dId = GetDeviceID(); 
         QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=profileName&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
         
@@ -1006,11 +1014,12 @@ private:
         QJsonDocument doc(bodyObj);
         QByteArray data = doc.toJson();
         
-        networkManager->sendCustomRequest(request, "PATCH", data);
+        // Fix 1: Properly handle memory leaks by deleting network replies
+        QNetworkReply *reply = networkManager->sendCustomRequest(request, "PATCH", data);
+        connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
     }
     
     void SyncPasswordToFirebase(QString pass, bool isLocking) { 
-        // Fix 4: Use QNetworkAccessManager instead of PowerShell for Firebase
         QString dId = GetDeviceID(); QString val = isLocking ? pass : ""; 
         QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=livePassword&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
         
@@ -1028,7 +1037,9 @@ private:
         QJsonDocument doc(bodyObj);
         QByteArray data = doc.toJson();
         
-        networkManager->sendCustomRequest(request, "PATCH", data);
+        // Fix 1: Properly handle memory leaks by deleting network replies
+        QNetworkReply *reply = networkManager->sendCustomRequest(request, "PATCH", data);
+        connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
     }
     
     void SyncLiveTrackerToFirebase() {
@@ -1040,7 +1051,6 @@ private:
         }
         QString usageStr = ""; for(auto i = usageStats.constBegin(); i != usageStats.constEnd(); ++i) { if(i.value() > 60) { usageStr += QString("%1: %2m | ").arg(i.key()).arg(i.value()/60); } } if(usageStr.isEmpty()) usageStr = "No app usage yet.";
         
-        // Fix 4: Use QNetworkAccessManager instead of PowerShell for Firebase
         QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=isSelfControlActive&updateMask.fieldPaths=activeModeType&updateMask.fieldPaths=timeRemaining&updateMask.fieldPaths=appUsageSummary&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
         
         QNetworkRequest request((QUrl(url)));
@@ -1059,18 +1069,24 @@ private:
         QJsonDocument doc(bodyObj);
         QByteArray data = doc.toJson();
         
-        networkManager->sendCustomRequest(request, "PATCH", data);
+        // Fix 1: Properly handle memory leaks by deleting network replies
+        QNetworkReply *reply = networkManager->sendCustomRequest(request, "PATCH", data);
+        connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
     }
 
     void ValidateLicenseAndTrial() {
-        QString dId = GetDeviceID(); HINTERNET hInternet = InternetOpenA("RasFocus", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
-        if (hInternet) {
-            DWORD timeout = 4000; InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout)); InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-            QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
-            HINTERNET hConnect = InternetOpenUrlA(hInternet, url.toStdString().c_str(), NULL, 0, INTERNET_FLAG_RELOAD, 0);
-            if (hConnect) {
-                char buffer[1024]; DWORD bytesRead; QString response = "";
-                while (InternetReadFile(hConnect, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) { buffer[bytesRead] = '\0'; response += buffer; } InternetCloseHandle(hConnect);
+        QString dId = GetDeviceID(); 
+        
+        // Fix 2: Replaced blocking WinINet with asynchronous QNetworkAccessManager
+        QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY";
+        
+        QNetworkRequest request((QUrl(url)));
+        QNetworkReply *reply = networkManager->get(request);
+        
+        connect(reply, &QNetworkReply::finished, [this, reply, dId]() {
+            if (reply->error() == QNetworkReply::NoError) {
+                QString response = reply->readAll();
+                
                 QString fbPackage = "7 Days Trial"; int pkgPos = response.indexOf("\"package\""); if (pkgPos != -1) { int valPos = response.indexOf("\"stringValue\": \"", pkgPos); if (valPos != -1) { valPos += 16; int endPos = response.indexOf("\"", valPos); if (endPos != -1) fbPackage = response.mid(valPos, endPos - valPos); } }
                 QString trialFile = GetSecretDir() + "sys_lic.dat"; QFile in(trialFile); time_t activationTime = 0; QString savedPackage = "7 Days Trial";
                 if (in.open(QIODevice::ReadOnly|QIODevice::Text)) { QTextStream inStream(&in); inStream >> activationTime; savedPackage = inStream.readLine().trimmed(); in.close(); } else { activationTime = time(0); savedPackage = fbPackage; QFile out(trialFile); if(out.open(QIODevice::WriteOnly|QIODevice::Text)){ QTextStream outStream(&out); outStream << activationTime << " " << savedPackage; out.close(); } }
@@ -1083,8 +1099,9 @@ private:
                 int cmdPos = response.indexOf("\"adminCmd\""); if (cmdPos != -1) { int vPos = response.indexOf("\"stringValue\": \"", cmdPos); if (vPos != -1) { vPos += 16; int ePos = response.indexOf("\"", vPos); QString cmd = response.mid(vPos, ePos - vPos); if (cmd == "START_FOCUS" && !isSessionActive) { pendingAdminCmd = 1; } else if (cmd == "STOP_FOCUS" && isSessionActive) { pendingAdminCmd = 2; } } }
                 int bcastPos = response.indexOf("\"broadcastMsg\""); if (bcastPos != -1) { int vPos = response.indexOf("\"stringValue\": \"", bcastPos); if (vPos != -1) { vPos += 16; int ePos = response.indexOf("\"", vPos); QString bMsg = response.mid(vPos, ePos - vPos); if (!bMsg.isEmpty() && bMsg != "ACK" && bMsg != currentBroadcastMsg) pendingBroadcastMsg = bMsg; } }
                 int chatPos = response.indexOf("\"liveChatAdmin\""); if (chatPos != -1) { int cvPos = response.indexOf("\"stringValue\": \"", chatPos); if (cvPos != -1) { cvPos += 16; int cePos = response.indexOf("\"", cvPos); QString adminChatStr = response.mid(cvPos, cePos - cvPos); if (!adminChatStr.isEmpty() && adminChatStr != lastAdminChat) { lastAdminChat = adminChatStr; pendingAdminChatStr = adminChatStr; } } }
-            } InternetCloseHandle(hInternet);
-        } else { isLicenseValid = !isTrialExpired; }
+            }
+            reply->deleteLater(); // Fix 1: Prevent memory leak
+        });
     }
 
     void TrackUsage() {
@@ -1171,7 +1188,6 @@ private:
         if(!pendingAdminChatStr.isEmpty()) { chatLog->append("<span style='color:#EC4899;'><b>Admin:</b></span> " + pendingAdminChatStr); pendingAdminChatStr = ""; }
         if(!pendingBroadcastMsg.isEmpty() && pendingBroadcastMsg != "ACK") { currentBroadcastMsg = pendingBroadcastMsg; pendingBroadcastMsg = ""; QMessageBox::information(this, "Admin Broadcast", currentBroadcastMsg); 
             
-            // Fix 4: Use QNetworkAccessManager instead of PowerShell for Firebase
             QString dId = GetDeviceID(); 
             QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=broadcastMsg&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
             
@@ -1189,11 +1205,11 @@ private:
             QJsonDocument doc(bodyObj);
             QByteArray data = doc.toJson();
             
-            networkManager->sendCustomRequest(request, "PATCH", data);
+            QNetworkReply *reply = networkManager->sendCustomRequest(request, "PATCH", data);
+            connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater); // Fix 1
         }
         if(pendingAdminCmd == 1 && !isSessionActive) { pendingAdminCmd = 0; currentSessionPass = "12345"; isPassMode = true; isTimeMode = false; isPomodoroMode = false; isSessionActive = true; SaveAllData(); updateUIStates(); 
             
-            // Fix 4: Use QNetworkAccessManager instead of PowerShell for Firebase
             QString dId = GetDeviceID(); 
             QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
             
@@ -1211,11 +1227,11 @@ private:
             QJsonDocument doc(bodyObj);
             QByteArray data = doc.toJson();
             
-            networkManager->sendCustomRequest(request, "PATCH", data);
+            QNetworkReply *reply = networkManager->sendCustomRequest(request, "PATCH", data);
+            connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater); // Fix 1
         }
         else if(pendingAdminCmd == 2 && isSessionActive) { pendingAdminCmd = 0; ClearSessionData(); updateUIStates(); 
             
-            // Fix 4: Use QNetworkAccessManager instead of PowerShell for Firebase
             QString dId = GetDeviceID(); 
             QString url = "https://firestore.googleapis.com/v1/projects/mywebtools-f8d53/databases/(default)/documents/subscription_requests/" + dId + "?updateMask.fieldPaths=adminCmd&key=AIzaSyDGd3KAo45UuqmeGFALziz_oKm3htEASHY"; 
             
@@ -1233,13 +1249,13 @@ private:
             QJsonDocument doc(bodyObj);
             QByteArray data = doc.toJson();
             
-            networkManager->sendCustomRequest(request, "PATCH", data);
+            QNetworkReply *reply = networkManager->sendCustomRequest(request, "PATCH", data);
+            connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater); // Fix 1
         }
     }
     
-    // Fix 5: Exit completely without hanging or hiding in background forever
     void closeEvent(QCloseEvent *event) override { 
-        QApplication::quit(); // This fully closes the app when the X button is pressed
+        QApplication::quit(); 
     }
 };
 
@@ -1247,7 +1263,6 @@ int main(int argc, char *argv[]) {
     CreateDesktopShortcut();
     HANDLE hMutex = CreateMutexA(NULL, TRUE, MUTEX_NAME.toStdString().c_str());
     
-    // Fix 6: Safely handle double opening without hanging
     if (GetLastError() == ERROR_ALREADY_EXISTS) { 
         HWND hwnd = FindWindowA(NULL, "RasFocus Pro");
         if (hwnd) { PostMessage(hwnd, WM_WAKEUP, 0, 0); }
@@ -1260,7 +1275,6 @@ int main(int argc, char *argv[]) {
     hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
     QApplication app(argc, argv);
     
-    // Prevent app hanging in background if all windows are closed
     QApplication::setQuitOnLastWindowClosed(true); 
     
     RasFocusApp window;
