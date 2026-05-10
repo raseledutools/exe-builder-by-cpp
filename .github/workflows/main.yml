@@ -11,12 +11,11 @@ jobs:
     defaults:
       run:
         shell: msys2 {0}
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # MSYS2 এর মাধ্যমে আগে থেকে কম্পাইল করা Static Qt নামানো হচ্ছে
     - name: Setup MSYS2 and Static Qt5
       uses: msys2/setup-msys2@v2
       with:
@@ -24,19 +23,25 @@ jobs:
         update: true
         install: >-
           mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-ninja
           mingw-w64-x86_64-qt5-static
+          mingw-w64-x86_64-make
 
-    # CMake দিয়ে প্রোজেক্ট বিল্ড করা হচ্ছে (qmake এর বদলে)
-    - name: Build RasFocus Standalone
+    - name: Build with qmake (Static Qt)
       run: |
+        export PATH="/mingw64/qt5-static/bin:$PATH"
         mkdir build
         cd build
-        cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-        cmake --build .
+        qmake ../RasFocus+AdultBlocker.pro \
+          CONFIG+=release \
+          CONFIG+=static
+        mingw32-make -j$(nproc)
 
-    # শুধুমাত্র বিল্ড হওয়া একটিমাত্র .exe ফাইল আপলোড করা হচ্ছে (কোনো DLL ছাড়া)
+    - name: Rename EXE
+      run: |
+        mv build/release/RasFocus+AdultBlocker.exe build/RasFocus_Pro.exe || \
+        mv build/RasFocus+AdultBlocker.exe build/RasFocus_Pro.exe || \
+        find build -name "*.exe" -exec mv {} build/RasFocus_Pro.exe \;
+
     - name: Upload Single EXE
       uses: actions/upload-artifact@v4
       with:
